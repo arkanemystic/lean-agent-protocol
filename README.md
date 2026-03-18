@@ -16,8 +16,8 @@ The demo runs three pre-compiled policies (capital threshold, price deviation, p
 
 | Service | URL |
 |---|---|
-| Frontend | https://YOURAPP.vercel.app |
-| Backend API | https://api.YOURDOMAIN.com/api/health |
+| Frontend | https://axiom.devrashie.space |
+| Backend API | https://api.devrashie.space |
 
 ---
 
