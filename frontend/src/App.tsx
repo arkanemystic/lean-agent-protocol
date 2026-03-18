@@ -4,23 +4,25 @@ import { PolicyPanel } from './components/PolicyPanel'
 import { AgentPanel } from './components/AgentPanel'
 import { StatusPanel } from './components/StatusPanel'
 import { SandboxPanel } from './components/SandboxPanel'
+import { AboutPanel } from './components/AboutPanel'
 import { AuditLog } from './components/AuditLog'
 import { LogStream } from './components/LogStream'
 import { BootScreen } from './components/BootScreen'
 import { useAuditStream } from './hooks/useAuditStream'
 import './App.css'
 
-type Tab = 'policies' | 'agent' | 'status' | 'sandbox'
+export type Tab = 'policies' | 'agent' | 'status' | 'sandbox' | 'about'
 
 const TABS: { id: Tab; label: string; prefix: string }[] = [
   { id: 'policies', label: 'Policies', prefix: '0x01' },
   { id: 'agent',    label: 'Agent',    prefix: '0x02' },
   { id: 'sandbox',  label: 'Sandbox',  prefix: '0x03' },
   { id: 'status',   label: 'Status',   prefix: '0x04' },
+  { id: 'about',    label: 'About',    prefix: '0x05' },
 ]
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('agent')
+  const [tab, setTab] = useState<Tab>('about')
   const { entries, status: wsStatus } = useAuditStream()
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -85,6 +87,7 @@ export default function App() {
               {tab === 'agent' && <AgentPanel />}
               {tab === 'sandbox' && <SandboxPanel />}
               {tab === 'status' && <StatusPanel />}
+              {tab === 'about' && <AboutPanel onNavigate={setTab} />}
             </div>
 
             <LogStream />

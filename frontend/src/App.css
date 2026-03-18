@@ -32,13 +32,10 @@
   color: #00ff41;
   overflow: hidden;
   opacity: 1;
-  transition: opacity 0.4s ease;
+  transition: opacity 0.5s ease;
 }
-
-.boot-screen.boot-fading {
-  opacity: 0;
-  pointer-events: none;
-}
+.boot-screen.boot-fading    { opacity: 0; pointer-events: none; }
+.boot-screen.boot-flickering { opacity: 0; }
 
 .boot-content {
   padding: 40px;
@@ -55,16 +52,22 @@
   white-space: pre;
   color: #00ff41;
 }
+.boot-line-sm { font-size: 12px; line-height: 1.6; }
 
-.boot-summary {
-  margin-top: 4px;
+.boot-blue         { color: #4da6ff; }
+.boot-muted        { color: #5a6070; }
+.boot-progress-bar { color: #00ff41; }
+.boot-progress-pct { color: #00ff41; }
+
+/* Horizontal rule between sections */
+.boot-rule {
+  font-size: 12px;
+  color: #1e2330;
+  margin: 6px 0 4px;
+  white-space: pre;
 }
 
-.boot-blue {
-  color: #4da6ff;
-}
-
-/* Inline cursor (non-blinking, appears during typing) */
+/* Solid block cursor during typing */
 .boot-cursor-inline {
   display: inline-block;
   width: 8px;
@@ -74,22 +77,26 @@
   margin-left: 1px;
 }
 
-/* Blinking prompt cursor */
-.boot-blink-cursor {
-  animation: boot-blink 0.5s step-end infinite;
-}
-
-@keyframes boot-blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0; }
-}
-
-/* Logo block */
+/* Logo block with CSS scanline sweep */
 .boot-logo-wrap {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin: 16px 0 8px;
+  margin: 12px 0 6px;
+}
+.boot-logo-wrap::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: rgba(0, 255, 65, 0.15);
+  animation: boot-scanline 800ms linear 1 forwards;
+}
+@keyframes boot-scanline {
+  from { top: 0; }
+  to   { top: 100%; }
 }
 
 .boot-logo {
@@ -98,21 +105,55 @@
   color: #00ff41;
   margin: 0;
   white-space: pre;
-  text-align: left;
 }
-
 .boot-logo-subtitle {
   font-size: clamp(8px, 1.8vw, 13px);
   letter-spacing: 0.25em;
   margin-top: 6px;
 }
 
-.boot-prompt-area {
-  margin-top: 16px;
+/* Initialize button area */
+.boot-btn-area {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  animation: boot-fadein 0.4s ease forwards;
 }
-
-.boot-prompt-line {
+@keyframes boot-fadein {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.boot-status-text {
+  color: #5a6070;
+  font-size: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.boot-btn {
+  background: transparent;
+  border: 1px solid #00ff41;
+  color: #00ff41;
+  font-family: 'IBM Plex Mono', 'Fira Mono', monospace;
   font-size: 13px;
+  letter-spacing: 0.2em;
+  padding: 12px 32px;
+  cursor: pointer;
+  animation: boot-btn-pulse 1.5s ease-in-out infinite;
+  transition: background 0.15s;
+}
+.boot-btn:hover:not(:disabled) { background: rgba(0, 255, 65, 0.08); }
+.boot-btn:disabled    { opacity: 0.7; cursor: default; }
+.boot-btn.boot-btn-launching { animation: none; }
+@keyframes boot-btn-pulse {
+  0%, 100% { box-shadow: 0 0 0px #00ff41; }
+  50%       { box-shadow: 0 0 16px #00ff41; }
+}
+.boot-exit-line {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px;
+  color: #00ff41;
+  line-height: 1.8;
 }
 
 /* ─── Reset ──────────────────────────────────────────────────── */
@@ -1392,6 +1433,150 @@ html, body, #root {
 .log-entry-success .log-msg { color: var(--green); }
 .log-entry-warn  .log-msg { color: var(--amber); }
 .log-entry-error .log-msg { color: var(--red); }
+
+/* ─── About panel ────────────────────────────────────────────── */
+.about-panel {
+  padding: 20px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-family: var(--font-mono);
+}
+
+.about-header {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #00ff41;
+  margin-bottom: 10px;
+}
+
+.about-rule {
+  height: 1px;
+  border: none;
+  border-top: 1px dashed var(--border);
+  margin: 12px 0;
+}
+
+.about-section {
+  margin-bottom: 4px;
+}
+
+.about-section-label {
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--blue);
+  margin-top: 16px;
+  margin-bottom: 10px;
+}
+
+.about-body {
+  font-size: 13px;
+  color: #8890a0;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.about-green { color: #00ff41; }
+
+/* Comparison table */
+.about-code-block {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.about-table-border { color: #1e2330; }
+.about-table-row { display: flex; }
+.about-table-left { color: #8890a0; }
+.about-table-right { color: #00ff41; }
+.about-table-header-left { color: #8890a0; font-weight: 600; }
+.about-table-header-right { color: #00ff41; font-weight: 600; }
+
+/* Nav cards grid */
+.about-nav-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.about-nav-card {
+  border: 1px solid var(--border);
+  padding: 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s;
+  background: transparent;
+}
+.about-nav-card:hover { border-color: var(--blue); }
+
+.about-nav-card-title {
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--blue);
+}
+.about-nav-card-prefix {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.about-nav-card-body {
+  font-size: 12px;
+  color: #8890a0;
+  line-height: 1.7;
+  flex: 1;
+}
+.about-nav-card-link {
+  font-size: 11px;
+  color: var(--blue);
+}
+
+/* Dependencies */
+.about-deps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.about-dep-row {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.about-dep-name    { color: #00ff41; min-width: 100px; }
+.about-dep-version { color: #5a6070; min-width: 70px; }
+.about-dep-desc    { color: #8890a0; }
+
+/* Regulatory */
+.about-regs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.about-reg-row { display: flex; font-size: 12px; line-height: 1.8; }
+.about-reg-label { color: var(--blue); min-width: 100px; }
+.about-reg-sep   { color: #1e2330; }
+.about-reg-desc  { color: #8890a0; }
+
+/* Footer */
+.about-footer {
+  font-size: 11px;
+  color: #5a6070;
+  line-height: 1.9;
+  margin-top: 4px;
+}
+.about-link {
+  color: #5a6070;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.about-link:hover { color: var(--blue); }
 
 /* ─── Highlight.js token overrides ───────────────────────────── */
 .hljs-keyword  { color: #c792ea; }

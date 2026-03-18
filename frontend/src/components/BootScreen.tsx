@@ -2,21 +2,24 @@ import { useEffect, useRef, useState } from 'react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TITLE = "AXIOM PROTOCOL v1.0.0 — Formally Verified AI Guardrails"
-const CHAR_DELAY_MS = 25 // ~40 chars/sec
+const TYPING_TEXT = "INITIALIZING SECURE EXECUTION ENVIRONMENT..."
+const CHAR_DELAY_MS = Math.round(1000 / 60) // ~60 chars/sec
 
-type StatusLine =
-  | { type: 'divider'; text: string }
-  | { type: 'service'; service: string }
+const BOOT_LINES = [
+  { tag: '[BOOT]', desc: 'Loading Lean 4 verification kernel' },
+  { tag: '[BOOT]', desc: 'Compiling policy axiom environment' },
+  { tag: '[BOOT]', desc: 'Establishing formal proof context' },
+  { tag: '[BOOT]', desc: 'Mounting WebSocket audit stream' },
+  { tag: '[BOOT]', desc: 'Connecting to Aristotle theorem prover' },
+  { tag: '[BOOT]', desc: 'Initializing back-translation pipeline' },
+]
 
-const STATUS_LINES: StatusLine[] = [
-  { type: 'divider', text: '────────────────────────────────────────────────' },
-  { type: 'service', service: '  Lean 4 kernel................... ' },
-  { type: 'service', service: '  Policy environment.............. ' },
-  { type: 'service', service: '  Orchestrator.................... ' },
-  { type: 'service', service: '  WebSocket audit stream.......... ' },
-  { type: 'service', service: '  Back-translator (Claude API).... ' },
-  { type: 'divider', text: '────────────────────────────────────────────────' },
+const EXIT_LINES = [
+  '>> kernel.ready',
+  '>> policies.compiled',
+  '>> orchestrator.active',
+  '>> audit.stream.open',
+  '>> launch',
 ]
 
 const ASCII_LOGO = [
@@ -28,178 +31,193 @@ const ASCII_LOGO = [
   '╚═╝  ╚═╝╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝     ╚═╝',
 ]
 
-// ── Component ─────────────────────────────────────────────────────────────────
+type Phase = 'init' | 'typing' | 'bootlines' | 'progress' | 'rule' | 'logo' | 'btn'
+
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms))
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
-  /** Called when the boot screen begins fading out — start showing main app now. */
   onFadeStart: () => void
-  /** Called after fade completes — unmount BootScreen. */
   onDone: () => void
 }
 
-export function BootScreen({ onFadeStart, onDone }: Props) {
-  const [started, setStarted] = useState(false)
-  const [typedCount, setTypedCount] = useState(0)
-  const [statusCount, setStatusCount] = useState(-1)
-  const [showSummary, setShowSummary] = useState(false)
-  const [showLogo, setShowLogo] = useState(false)
-  const [showPrompt, setShowPrompt] = useState(false)
-  // null = no typing yet (show instruction), string = user's typed input
-  const [promptInput, setPromptInput] = useState<string | null>(null)
-  const [showExitLine, setShowExitLine] = useState(false)
-  const [fading, setFading] = useState(false)
+// ── Component ─────────────────────────────────────────────────────────────────
 
+export function BootScreen({ onFadeStart, onDone }: Props) {
+  const [phase, setPhase] = useState<Phase>('init')
+  const [typedCount, setTypedCount] = useState(0)
+  const [bootLineCount, setBootLineCount] = useState(0)
+  const [launching, setLaunching] = useState(false)
+  const [exitLines, setExitLines] = useState<string[]>([])
+  const [flickering, setFlickering] = useState(false)
+  const [fading, setFading] = useState(false)
   const exitTriggered = useRef(false)
 
   // ── Animation sequence ───────────────────────────────────────────────────
 
-  // Step 2: Start typing after 300ms
+  // Step 1: 500ms black pause, then start typing
   useEffect(() => {
-    const t = setTimeout(() => setStarted(true), 300)
+    const t = setTimeout(() => setPhase('typing'), 500)
     return () => clearTimeout(t)
   }, [])
 
-  // Char-by-char typing
+  // Step 2: char-by-char typing
   useEffect(() => {
-    if (!started) return
-    if (typedCount >= TITLE.length) {
-      // Done typing → wait 200ms then start status lines
-      const t = setTimeout(() => setStatusCount(0), 200)
+    if (phase !== 'typing') return
+    if (typedCount >= TYPING_TEXT.length) {
+      const t = setTimeout(() => setPhase('bootlines'), 200)
       return () => clearTimeout(t)
     }
     const t = setTimeout(() => setTypedCount((c) => c + 1), CHAR_DELAY_MS)
     return () => clearTimeout(t)
-  }, [started, typedCount])
+  }, [phase, typedCount])
 
-  // Status lines: one every 120ms
+  // Step 3: boot lines, 80ms each
   useEffect(() => {
-    if (statusCount < 0) return
-    if (statusCount >= STATUS_LINES.length) {
-      const t = setTimeout(() => setShowSummary(true), 200)
+    if (phase !== 'bootlines') return
+    if (bootLineCount >= BOOT_LINES.length) {
+      const t = setTimeout(() => setPhase('progress'), 150)
       return () => clearTimeout(t)
     }
-    const t = setTimeout(() => setStatusCount((c) => c + 1), 120)
+    const t = setTimeout(() => setBootLineCount((c) => c + 1), 80)
     return () => clearTimeout(t)
-  }, [statusCount])
+  }, [phase, bootLineCount])
+
+  // Step 4 → 5 → 6 → 7
+  useEffect(() => {
+    if (phase !== 'progress') return
+    const t = setTimeout(() => setPhase('rule'), 300)
+    return () => clearTimeout(t)
+  }, [phase])
 
   useEffect(() => {
-    if (!showSummary) return
-    const t = setTimeout(() => setShowLogo(true), 400)
+    if (phase !== 'rule') return
+    const t = setTimeout(() => setPhase('logo'), 200)
     return () => clearTimeout(t)
-  }, [showSummary])
+  }, [phase])
 
   useEffect(() => {
-    if (!showLogo) return
-    const t = setTimeout(() => setShowPrompt(true), 600)
+    if (phase !== 'logo') return
+    const t = setTimeout(() => setPhase('btn'), 400)
     return () => clearTimeout(t)
-  }, [showLogo])
+  }, [phase])
 
-  // ── Exit ─────────────────────────────────────────────────────────────────
+  // ── Exit sequence ────────────────────────────────────────────────────────
 
-  function triggerExit() {
+  async function handleLaunch() {
     if (exitTriggered.current) return
     exitTriggered.current = true
-    setShowExitLine(true)
-    setTimeout(() => {
-      setFading(true)
-      onFadeStart()
-      setTimeout(() => onDone(), 400) // after CSS fade completes
-    }, 300)
+    setLaunching(true)
+
+    for (const line of EXIT_LINES) {
+      await sleep(60)
+      setExitLines((prev) => [...prev, line])
+    }
+
+    await sleep(200)
+
+    // Flicker: single opacity drop
+    setFlickering(true)
+    await sleep(50)
+    setFlickering(false)
+    await sleep(50)
+
+    setFading(true)
+    onFadeStart()
+    setTimeout(() => onDone(), 500)
   }
 
-  // ── Keyboard handler ─────────────────────────────────────────────────────
+  // ── Derived render flags ──────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!showPrompt) return
-    const onKey = (e: KeyboardEvent) => {
-      if (exitTriggered.current) return
-      if (e.key === 'Enter') {
-        triggerExit()
-        return
-      }
-      if (e.key.length !== 1) return
-      setPromptInput((prev) => {
-        const next = (prev ?? '') + e.key
-        if (next.toLowerCase().endsWith('enter')) {
-          // Defer to avoid React batching issues
-          setTimeout(triggerExit, 0)
-        }
-        return next
-      })
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showPrompt]) // eslint-disable-line react-hooks/exhaustive-deps
+  const atOrPast = (p: Phase) => {
+    const order: Phase[] = ['init', 'typing', 'bootlines', 'progress', 'rule', 'logo', 'btn']
+    return order.indexOf(phase) >= order.indexOf(p)
+  }
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  const showProgress = atOrPast('progress') || launching
+  const showRule     = atOrPast('rule') || launching
+  const showLogo     = atOrPast('logo') || launching
+  const showBtn      = atOrPast('btn')
+
+  let screenClass = 'boot-screen'
+  if (fading) screenClass += ' boot-fading'
+  if (flickering) screenClass += ' boot-flickering'
 
   return (
-    <div className={`boot-screen${fading ? ' boot-fading' : ''}`}>
+    <div className={screenClass}>
       <div className="boot-content">
 
-        {/* Initial cursor before typing */}
-        {!started && (
+        {/* Step 1: initial cursor */}
+        {phase === 'init' && (
           <div className="boot-line">
             <span className="boot-cursor-inline" />
           </div>
         )}
 
-        {/* Title: char by char */}
-        {started && (
+        {/* Step 2: typing line */}
+        {phase !== 'init' && (
           <div className="boot-line">
-            {TITLE.slice(0, typedCount)}
-            {typedCount < TITLE.length && <span className="boot-cursor-inline" />}
+            {TYPING_TEXT.slice(0, typedCount)}
+            {phase === 'typing' && typedCount < TYPING_TEXT.length && (
+              <span className="boot-cursor-inline" />
+            )}
           </div>
         )}
 
-        {/* Status lines */}
-        {STATUS_LINES.slice(0, statusCount).map((line, i) =>
-          line.type === 'divider' ? (
-            <div key={i} className="boot-line">{line.text}</div>
-          ) : (
-            <div key={i} className="boot-line">
-              <span className="boot-blue">{line.service}</span>
-              <span>[  OK  ]</span>
+        {/* Step 3: boot lines */}
+        {BOOT_LINES.slice(0, bootLineCount).map((line, i) => (
+          <div key={i} className="boot-line boot-line-sm">
+            <span className="boot-blue">{'  ' + line.tag + ' '}</span>
+            <span className="boot-muted">{line.desc}</span>
+          </div>
+        ))}
+
+        {/* Step 4: progress bar + summary */}
+        {showProgress && (
+          <>
+            <div className="boot-line boot-line-sm">&nbsp;</div>
+            <div className="boot-line boot-line-sm">
+              {'  '}<span className="boot-progress-bar">{'████████████████████████████████'}</span>
+              <span className="boot-progress-pct">{'  100%'}</span>
             </div>
-          )
+            <div className="boot-line boot-line-sm">{'  All subsystems nominal.'}</div>
+          </>
         )}
 
-        {/* Summary line */}
-        {showSummary && (
-          <div className="boot-line boot-summary">
-            All systems operational. Formal verification active.
-          </div>
+        {/* Step 5: subtle rule */}
+        {showRule && (
+          <div className="boot-rule">────────────────────────────────────────────────</div>
         )}
 
-        {/* ASCII logo */}
+        {/* Step 6: ASCII logo with CSS scanline */}
         {showLogo && (
           <div className="boot-logo-wrap">
-            <pre className="boot-logo">
-              {ASCII_LOGO.join('\n')}
-            </pre>
+            <pre className="boot-logo">{ASCII_LOGO.join('\n')}</pre>
             <div className="boot-logo-subtitle boot-blue">
               P&nbsp;&nbsp;R&nbsp;&nbsp;O&nbsp;&nbsp;T&nbsp;&nbsp;O&nbsp;&nbsp;C&nbsp;&nbsp;O&nbsp;&nbsp;L
             </div>
           </div>
         )}
 
-        {/* Prompt */}
-        {showPrompt && (
-          <div className="boot-prompt-area">
-            {!showExitLine ? (
-              <div className="boot-line boot-prompt-line">
-                {'> '}
-                {promptInput === null ? (
-                  <>type &#39;enter&#39; to initialize<span className="boot-blink-cursor">_</span></>
-                ) : (
-                  <>{promptInput}<span className="boot-blink-cursor">_</span></>
-                )}
-              </div>
-            ) : (
-              <div className="boot-line">
-                {'> Initializing Axiom Protocol...'}
-              </div>
-            )}
+        {/* Step 7: button + exit lines */}
+        {showBtn && (
+          <div className="boot-btn-area">
+            <div className="boot-status-text">
+              Formal verification active — 3 policies loaded
+            </div>
+            <button
+              className={`boot-btn${launching ? ' boot-btn-launching' : ''}`}
+              onClick={handleLaunch}
+              disabled={launching}
+            >
+              {launching ? '> LAUNCHING...' : '> INITIALIZE AXIOM PROTOCOL'}
+            </button>
+            {exitLines.map((line, i) => (
+              <div key={i} className="boot-exit-line">{line}</div>
+            ))}
           </div>
         )}
       </div>
