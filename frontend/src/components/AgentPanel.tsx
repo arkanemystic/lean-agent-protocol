@@ -13,9 +13,9 @@ const SCENARIOS = [
   { tool_name: 'rebalance_portfolio', params: { asset: 'BTC', new_weight: 0.30 }, agent_id: 'mock-trading-agent' },
 ]
 
-interface CardState {
+export interface CardState {
   id: string
-  scenario: (typeof SCENARIOS)[number]
+  scenario: { tool_name: string; params: Record<string, unknown>; agent_id: string }
   status: 'verifying' | 'done'
   result?: GuardrailResultResponse
   error?: string
@@ -28,7 +28,7 @@ function formatParams(params: Record<string, unknown>): string {
 }
 
 /** Returns latency text and CSS class for color coding. */
-function latencyDisplay(us: number): { text: string; cls: string } {
+export function latencyDisplay(us: number): { text: string; cls: string } {
   const ms = us / 1000
   if (us < 10_000) return { text: `${ms.toFixed(1)}ms — kernel verified`, cls: 'latency-fast' }
   if (us >= 100_000) return { text: `${ms.toFixed(0)}ms — cold start`, cls: 'latency-slow' }
@@ -36,7 +36,7 @@ function latencyDisplay(us: number): { text: string; cls: string } {
 }
 
 /** Syntax-highlights a Lean 4 code block using the registered grammar. */
-function HighlightedCode({ code }: { code: string }) {
+export function HighlightedCode({ code }: { code: string }) {
   const ref = useRef<HTMLElement>(null)
   useEffect(() => {
     if (ref.current && code) {
@@ -52,6 +52,35 @@ function HighlightedCode({ code }: { code: string }) {
   )
 }
 
+/** Reusable verdict result section — used by AgentCard and SandboxPanel. */
+export function VerdictCard({ result }: { result: GuardrailResultResponse }) {
+  return (
+    <>
+      {result.conjecture && (
+        <div className="conjecture-box">
+          <div className="conjecture-label">Lean 4 conjecture</div>
+          <HighlightedCode code={result.conjecture} />
+        </div>
+      )}
+      <div className="agent-card-result">
+        <div className="result-row">
+          <span className={`verdict-badge verdict-${result.verdict}`}>
+            {result.verdict.toUpperCase()}
+          </span>
+          {result.latency_us > 0 && (() => {
+            const { text, cls } = latencyDisplay(result.latency_us)
+            return <span className={`latency-primary ${cls}`}>{text}</span>
+          })()}
+          <span className="policy-label">{result.policy_id}</span>
+        </div>
+        {result.verdict === 'blocked' && (
+          <div className="explanation-text">{result.explanation}</div>
+        )}
+      </div>
+    </>
+  )
+}
+
 export function AgentPanel() {
   const [cards, setCards] = useState<CardState[]>([])
   const [running, setRunning] = useState(false)
@@ -62,7 +91,6 @@ export function AgentPanel() {
 
     for (const scenario of SCENARIOS) {
       const id = `${Date.now()}-${Math.random()}`
-
       setCards((prev) => [{ id, scenario, status: 'verifying' }, ...prev])
 
       try {
@@ -116,7 +144,7 @@ export function AgentPanel() {
   )
 }
 
-function AgentCard({ card }: { card: CardState }) {
+export function AgentCard({ card }: { card: CardState }) {
   const { scenario, status, result, error } = card
   const verdict = result?.verdict
 
@@ -124,13 +152,11 @@ function AgentCard({ card }: { card: CardState }) {
     <div
       className={`agent-card${verdict === 'allowed' ? ' card-allowed' : verdict === 'blocked' ? ' card-blocked' : ''}`}
     >
-      {/* Header: tool name + params */}
       <div className="agent-card-header">
         <span className="tool-name">{scenario.tool_name}</span>
-        <span className="params-text">({formatParams(scenario.params as Record<string, unknown>)})</span>
+        <span className="params-text">({formatParams(scenario.params)})</span>
       </div>
 
-      {/* Verifying state */}
       {status === 'verifying' && (
         <div className="verifying-row">
           <span className="spinner" />
@@ -138,35 +164,7 @@ function AgentCard({ card }: { card: CardState }) {
         </div>
       )}
 
-      {/* Done state */}
-      {status === 'done' && result && (
-        <>
-          {/* Conjecture box — shown when kernel returned a conjecture */}
-          {result.conjecture && (
-            <div className="conjecture-box">
-              <div className="conjecture-label">Lean 4 conjecture</div>
-              <HighlightedCode code={result.conjecture} />
-            </div>
-          )}
-
-          {/* Verdict + latency (primary) + policy */}
-          <div className="agent-card-result">
-            <div className="result-row">
-              <span className={`verdict-badge verdict-${result.verdict}`}>
-                {result.verdict.toUpperCase()}
-              </span>
-              {result.latency_us > 0 && (() => {
-                const { text, cls } = latencyDisplay(result.latency_us)
-                return <span className={`latency-primary ${cls}`}>{text}</span>
-              })()}
-              <span className="policy-label">{result.policy_id}</span>
-            </div>
-            {result.verdict === 'blocked' && (
-              <div className="explanation-text">{result.explanation}</div>
-            )}
-          </div>
-        </>
-      )}
+      {status === 'done' && result && <VerdictCard result={result} />}
 
       {status === 'done' && error && (
         <div className="error-text">Error: {error}</div>

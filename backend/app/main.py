@@ -5,24 +5,30 @@ FastAPI backend orchestrator for the Lean-Agent Protocol.
 import asyncio
 import json
 import os
+import re
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Set
 
+import anthropic
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import back_translator, orchestrator
+from . import back_translator, formalizer, orchestrator
 from .models import (
     AuditEntry,
     CompilePolicyRequest,
     CompilePolicyResponse,
+    FormalizePolicyRequest,
+    FormalizePolicyResponse,
     GuardrailResultResponse,
     PolicyMetadata,
     RegistryResponse,
+    SandboxParseRequest,
     ToolCallRequest,
 )
 from .policy_registry import (
@@ -43,13 +49,36 @@ ALLOWED_ORIGINS: list[str] = [
     o.strip() for o in _raw_origins.split(",") if o.strip()
 ] + ["http://localhost:5173", "http://localhost:3000"]
 
+# Policy IDs that must never be overwritten by auto-registration.
+_DEFAULT_POLICY_IDS = {"CAP-001", "PRC-001", "POS-001"}
+
+# Mock scenarios mirroring frontend/src/components/AgentPanel.tsx
+_MOCK_SCENARIOS: list[dict[str, Any]] = [
+    {"tool_name": "place_order",        "params": {"symbol": "AAPL", "qty": 5000,  "available_capital": 400000}, "agent_id": "mock-trading-agent"},
+    {"tool_name": "place_order",        "params": {"symbol": "TSLA", "qty": 50000, "available_capital": 400000}, "agent_id": "mock-trading-agent"},
+    {"tool_name": "place_order",        "params": {"symbol": "NVDA", "qty": 8000,  "available_capital": 400000}, "agent_id": "mock-trading-agent"},
+    {"tool_name": "place_order",        "params": {"symbol": "MSFT", "qty": 45000, "available_capital": 400000}, "agent_id": "mock-trading-agent"},
+    {"tool_name": "rebalance_portfolio", "params": {"asset": "SPY", "new_weight": 0.22}, "agent_id": "mock-trading-agent"},
+    {"tool_name": "rebalance_portfolio", "params": {"asset": "BTC", "new_weight": 0.30}, "agent_id": "mock-trading-agent"},
+]
+
+_SANDBOX_PARSE_SYSTEM = (
+    "Parse this financial action into a structured tool call. "
+    "Return ONLY a JSON object — no preamble, no markdown. "
+    "Fields:\n"
+    "- tool_name: string (place_order, rebalance_portfolio, or infer)\n"
+    "- params: object with numeric values as numbers\n"
+    "Common params: symbol (string), qty (number), price (number), "
+    "available_capital (number), new_weight (number, 0-1), asset (string)\n"
+    "Infer reasonable defaults for unstated params."
+)
+
 
 # ---------------------------------------------------------------------------- lifespan
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Seed registry.json with the 3 default policies on first run
     seed_if_missing()
     yield
 
@@ -108,6 +137,85 @@ def _append_audit(entry: AuditEntry) -> None:
         fh.write(entry.model_dump_json() + "\n")
 
 
+def _infer_policy_metadata(policy_id: str, lean_code: str, description: str = "") -> dict[str, Any]:
+    """
+    Build a PolicyMetadata dict from compiled Lean code using heuristics.
+    Extracts the function name from the first theorem/def/axiom.
+    Uses conservative defaults for everything else.
+    """
+    # Same sanitisation the lean-worker uses to derive the file name.
+    safe_id = "".join(c for c in policy_id if c.isalnum() or c == "_")
+
+    # Extract the first theorem/def/axiom name from the Lean source.
+    m = re.search(r"(?:theorem|def|axiom)\s+(\w+)", lean_code)
+    lean_function = m.group(1) if m else "customPolicy"
+
+    return {
+        "policy_id": policy_id,
+        "display_name": description or policy_id,
+        "lean_module": f"PolicyEnv.{safe_id}",
+        "lean_function": lean_function,
+        "applies_to_tools": ["place_order", "rebalance_portfolio"],
+        "parameter_map": {"trade_value": "qty", "capital": "available_capital"},
+        "param_transforms": {},
+        "description": description,
+    }
+
+
+async def _run_one_scenario(scenario: dict[str, Any]) -> None:
+    """Run a single mock scenario through orchestrator and broadcast the result."""
+    call_id = str(uuid.uuid4())
+    try:
+        worker_resp = await orchestrator.verify(
+            tool_name=scenario["tool_name"],
+            params=scenario["params"],
+            lean_worker_url=LEAN_WORKER_URL,
+        )
+        lean_result: str = worker_resp["result"]
+        lean_trace: str = worker_resp.get("trace", "")
+        latency_us: int = worker_resp.get("latency_us", 0)
+        policy_id: str = worker_resp.get("policy_id", "UNKNOWN")
+        conjecture: str = worker_resp.get("conjecture", "")
+
+        if lean_result == "proved":
+            verdict = "allowed"
+            explanation = f"Action satisfies all constraints under {policy_id}."
+        elif lean_result == "refuted":
+            verdict = "blocked"
+            explanation = back_translator.translate(lean_trace, scenario["params"], policy_id)
+        elif lean_result == "skipped":
+            verdict = "skipped"
+            explanation = f"No policies registered for tool: {scenario['tool_name']}"
+        else:
+            verdict = "blocked"
+            explanation = f"Lean kernel error during verification: {lean_trace[:200]}"
+
+        entry = AuditEntry(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            call_id=call_id,
+            agent_id=scenario["agent_id"],
+            tool_name=scenario["tool_name"],
+            params=scenario["params"],
+            verdict=verdict,
+            policy_id=policy_id,
+            lean_trace=lean_trace,
+            explanation=explanation,
+            latency_us=latency_us,
+            conjecture=conjecture,
+        )
+        _append_audit(entry)
+        await broadcaster.publish(entry.model_dump())
+    except Exception as exc:
+        print(f"_run_one_scenario error: {exc}", flush=True)
+
+
+async def _rerun_scenarios_background() -> None:
+    """Run all mock scenarios sequentially and broadcast each result."""
+    for scenario in _MOCK_SCENARIOS:
+        await _run_one_scenario(scenario)
+        await asyncio.sleep(0.4)   # small visual gap in the audit log feed
+
+
 # ---------------------------------------------------------------------------- routes
 
 
@@ -125,20 +233,18 @@ async def health():
 
 @app.post("/api/verify", response_model=GuardrailResultResponse)
 async def api_verify(req: ToolCallRequest):
-    # 1. Build conjectures from registry and call lean-worker
     worker_resp = await orchestrator.verify(
         tool_name=req.tool_name,
         params=req.params,
         lean_worker_url=LEAN_WORKER_URL,
     )
 
-    lean_result: str = worker_resp["result"]     # "proved" | "refuted" | "error" | "skipped"
+    lean_result: str = worker_resp["result"]
     lean_trace: str = worker_resp.get("trace", "")
     latency_us: int = worker_resp.get("latency_us", 0)
     policy_id: str = worker_resp.get("policy_id", "UNKNOWN")
     conjecture: str = worker_resp.get("conjecture", "")
 
-    # 2. Determine verdict and explanation
     if lean_result == "proved":
         verdict = "allowed"
         explanation = f"Action satisfies all constraints under {policy_id}."
@@ -148,11 +254,10 @@ async def api_verify(req: ToolCallRequest):
     elif lean_result == "skipped":
         verdict = "skipped"
         explanation = f"No policies registered for tool: {req.tool_name}"
-    else:  # "error"
+    else:
         verdict = "blocked"
         explanation = f"Lean kernel error during verification: {lean_trace[:200]}"
 
-    # 3. Write audit log entry
     entry = AuditEntry(
         timestamp=datetime.now(timezone.utc).isoformat(),
         call_id=req.call_id,
@@ -167,8 +272,6 @@ async def api_verify(req: ToolCallRequest):
         conjecture=conjecture,
     )
     _append_audit(entry)
-
-    # 4. Broadcast to WebSocket clients (non-blocking)
     asyncio.create_task(broadcaster.publish(entry.model_dump()))
 
     return GuardrailResultResponse(
@@ -189,11 +292,30 @@ async def api_compile_policy(req: CompilePolicyRequest):
         policy_id=req.policy_id,
         lean_worker_url=LEAN_WORKER_URL,
     )
+
+    registered = False
+    scenarios_rerun = False
+
+    if result["success"] and req.policy_id not in _DEFAULT_POLICY_IDS:
+        # Auto-register the newly compiled policy.
+        try:
+            meta = _infer_policy_metadata(req.policy_id, req.lean_code, req.description)
+            register_policy(meta)
+            registered = True
+        except Exception as exc:
+            print(f"Auto-registration failed for {req.policy_id}: {exc}", flush=True)
+
+        # Fire mock scenarios in the background so the audit log populates via WebSocket.
+        asyncio.create_task(_rerun_scenarios_background())
+        scenarios_rerun = True
+
     return CompilePolicyResponse(
         success=result["success"],
         error=result.get("error"),
         policy_id=req.policy_id,
-        needs_registration=result["success"],   # prompt frontend to register metadata
+        needs_registration=result["success"],
+        registered=registered,
+        scenarios_rerun=scenarios_rerun,
     )
 
 
@@ -213,12 +335,98 @@ async def api_register_policy(policy_id: str, metadata: PolicyMetadata):
     """
     Add or update a policy entry in the registry.
     Called automatically by the frontend after a successful /api/compile-policy.
-    The policy_id in the URL must match metadata.policy_id.
     """
     if metadata.policy_id != policy_id:
         metadata = metadata.model_copy(update={"policy_id": policy_id})
     register_policy(metadata.model_dump())
     return metadata
+
+
+# ---------------------------------------------------------------------------- formalization
+
+
+@app.post("/api/formalize-policy", response_model=FormalizePolicyResponse)
+async def api_formalize_policy(req: FormalizePolicyRequest):
+    """
+    Two-step pipeline: NL statement → Lean 4 skeleton → Aristotle-verified Lean 4.
+    Takes 30-120 seconds; runs fully async.
+    """
+    result = await formalizer.formalize(req.statement)
+    return FormalizePolicyResponse(**result)
+
+
+@app.post("/api/upload-policy-doc")
+async def api_upload_policy_doc(file: UploadFile = File(...)):
+    """
+    Accept a PDF, extract text, extract policy statements via Claude,
+    formalize each one (up to 10) via Aristotle, return results array.
+    """
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File exceeds 10 MB limit.")
+
+    # Extract text from PDF
+    try:
+        import io
+        import pypdf  # type: ignore[import]
+        reader = pypdf.PdfReader(io.BytesIO(contents))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        text = "\n\n".join(p for p in pages if p.strip())
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"PDF text extraction failed: {exc}")
+
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="No readable text found in PDF.")
+
+    # Extract atomic policy statements via Claude
+    try:
+        statements = await formalizer.extract_policy_statements(text)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Statement extraction failed: {exc}")
+
+    # Cap at 10 statements
+    statements = statements[:10]
+
+    # Formalize each statement
+    results = []
+    for statement in statements:
+        result = await formalizer.formalize(statement)
+        results.append(result)
+
+    return results
+
+
+# ---------------------------------------------------------------------------- sandbox
+
+
+@app.post("/api/sandbox/parse")
+async def api_sandbox_parse(req: SandboxParseRequest):
+    """
+    Parse a plain-English financial action into a structured ToolCall via Claude.
+    Returns a JSON object suitable for POST /api/verify.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY is not set.")
+
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    response = await client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=512,
+        system=_SANDBOX_PARSE_SYSTEM,
+        messages=[{"role": "user", "content": req.description}],
+    )
+    raw = response.content[0].text.strip()
+    # Strip markdown code fences if Claude adds them
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Claude returned invalid JSON: {exc}")
 
 
 # ---------------------------------------------------------------------------- audit log

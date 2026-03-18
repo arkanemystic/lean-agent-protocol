@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { compilePolicy } from '../api/client'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { compilePolicy, formalizePolicy, getPolicies, uploadPolicyDoc } from '../api/client'
+import { HighlightedCode } from './AgentPanel'
 import { hljs } from '../lib/lean4-hljs'
+import type { FormalizePolicyResponse, PolicyMetadata } from '../types'
+
+// ── Demo policy chips (pre-loaded, for the judge walkthrough) ─────────────────
 
 const DEMO_POLICIES = [
   {
     id: 'CAP001',
-    label: 'Capital Threshold',
     displayId: 'CAP-001',
+    label: 'Capital Threshold',
     text: "Do not execute trades exceeding 10% of the firm's available daily capital.",
     lean: `import PolicyEnv.Basic
 
@@ -22,8 +26,8 @@ end PolicyEnv`,
   },
   {
     id: 'PRC001',
-    label: 'Price Deviation',
     displayId: 'PRC-001',
+    label: 'Price Deviation',
     text: 'Reject any order where the execution price deviates more than 5% from the 15-minute moving average.',
     lean: `import PolicyEnv.Basic
 
@@ -39,8 +43,8 @@ end PolicyEnv`,
   },
   {
     id: 'POS001',
-    label: 'Position Limit',
     displayId: 'POS-001',
+    label: 'Position Limit',
     text: 'Block any single-asset position that would exceed 25% of total portfolio value.',
     lean: `import PolicyEnv.Basic
 
@@ -56,18 +60,158 @@ end PolicyEnv`,
   },
 ]
 
-type CompileStatus = 'idle' | 'compiling' | 'success' | 'error'
+// ── Sub-components ────────────────────────────────────────────────────────────
 
-export function PolicyPanel() {
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+interface ResultCardProps {
+  result: FormalizePolicyResponse
+  onDeploy: (policyId: string) => void
+}
+
+function FormalizeResultCard({ result, onDeploy }: ResultCardProps) {
+  const [editedCode, setEditedCode] = useState(result.lean_code ?? result.skeleton)
+  const [deploying, setDeploying] = useState(false)
+  const [deployed, setDeployed] = useState(false)
+  const [deployError, setDeployError] = useState('')
+  const [retrying, setRetrying] = useState(false)
+  const [retryResult, setRetryResult] = useState<FormalizePolicyResponse | null>(null)
+
+  const active = retryResult ?? result
+  const displayCode = retryResult ? (retryResult.lean_code ?? retryResult.skeleton) : editedCode
+  const isSuccess = active.status === 'success' && active.lean_code
+
+  async function handleDeploy() {
+    const code = displayCode.trim()
+    if (!code) return
+    setDeploying(true)
+    setDeployError('')
+    try {
+      const res = await compilePolicy({
+        lean_code: code,
+        policy_id: active.policy_id,
+        description: active.statement,
+      })
+      if (res.success) {
+        setDeployed(true)
+        onDeploy(active.policy_id)
+      } else {
+        setDeployError(res.error ?? 'Compilation failed')
+      }
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : 'Network error')
+    } finally {
+      setDeploying(false)
+    }
+  }
+
+  async function handleRetry() {
+    setRetrying(true)
+    try {
+      const r = await formalizePolicy({ statement: result.statement })
+      setRetryResult(r)
+    } catch {
+      // keep original
+    } finally {
+      setRetrying(false)
+    }
+  }
+
+  return (
+    <div className={`formalize-card formalize-card-${isSuccess ? 'success' : 'failed'}`}>
+      <div className="formalize-card-statement">{result.statement}</div>
+
+      {!isSuccess && active.error && (
+        <div className="formalize-error">{active.error}</div>
+      )}
+
+      {displayCode && (
+        <div className="conjecture-box" style={{ marginTop: 8 }}>
+          <div className="conjecture-label">
+            {isSuccess ? 'Verified Lean 4' : 'Skeleton (edit before deploying)'}
+          </div>
+          {isSuccess ? (
+            <HighlightedCode code={displayCode} />
+          ) : (
+            <textarea
+              className="lean-edit-area"
+              value={displayCode}
+              onChange={(e) => setEditedCode(e.target.value)}
+              spellCheck={false}
+            />
+          )}
+        </div>
+      )}
+
+      {deployError && <div className="formalize-error">{deployError}</div>}
+
+      <div className="formalize-card-actions">
+        {!isSuccess && (
+          <button className="btn btn-ghost btn-sm" onClick={handleRetry} disabled={retrying}>
+            {retrying ? <><span className="spinner" /> Retrying…</> : '↺ Retry'}
+          </button>
+        )}
+        {deployed ? (
+          <span className="compile-status compile-status-success" style={{ padding: '4px 10px' }}>
+            ✓ Deployed as {active.policy_id}
+          </span>
+        ) : (
+          <button className="btn btn-secondary btn-sm" onClick={handleDeploy} disabled={deploying || !displayCode.trim()}>
+            {deploying ? <><span className="spinner" /> Deploying…</> : 'Deploy →'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+interface Props {
+  onDeployed?: (policyId: string) => void
+}
+
+export function PolicyPanel({ onDeployed }: Props) {
+  // PDF upload state
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadStage, setUploadStage] = useState<'idle' | 'processing' | 'done'>('idle')
+  const [uploadProgress, setUploadProgress] = useState('')
+  const [uploadResults, setUploadResults] = useState<FormalizePolicyResponse[]>([])
+  const [uploadError, setUploadError] = useState('')
+
+  // Manual policy state
   const [nlText, setNlText] = useState('')
   const [leanCode, setLeanCode] = useState('')
   const [activeChip, setActiveChip] = useState<string | null>(null)
   const [formalizing, setFormalizing] = useState(false)
-  const [compileStatus, setCompileStatus] = useState<CompileStatus>('idle')
+  const [formalizeElapsed, setFormalizeElapsed] = useState(0)
+  const [formalizeError, setFormalizeError] = useState('')
+  const [compileStatus, setCompileStatus] = useState<'idle' | 'compiling' | 'success' | 'error'>('idle')
   const [compileMessage, setCompileMessage] = useState('')
+
+  // Active policies
+  const [policies, setPolicies] = useState<Record<string, PolicyMetadata>>({})
+
+  // Lean 4 syntax highlight ref
   const codeRef = useRef<HTMLDivElement>(null)
 
-  // Re-highlight whenever lean code changes
+  const loadPolicies = useCallback(async () => {
+    try {
+      const resp = await getPolicies()
+      setPolicies(resp.policies)
+    } catch {
+      // non-fatal — show empty list
+    }
+  }, [])
+
+  useEffect(() => { loadPolicies() }, [loadPolicies])
+
+  // Re-highlight when lean code changes
   useEffect(() => {
     if (codeRef.current && leanCode) {
       const result = hljs.highlight(leanCode, { language: 'lean4' })
@@ -77,10 +221,40 @@ export function PolicyPanel() {
     }
   }, [leanCode])
 
+  // Elapsed-time ticker while formalizing
+  useEffect(() => {
+    if (!formalizing) { setFormalizeElapsed(0); return }
+    const t = setInterval(() => setFormalizeElapsed((s) => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [formalizing])
+
+  // ── PDF upload ────────────────────────────────────────────────────────────
+
+  async function handleExtractAndFormalize() {
+    if (!uploadFile) return
+    setUploadStage('processing')
+    setUploadError('')
+    setUploadResults([])
+    setUploadProgress('Uploading…')
+    try {
+      setUploadProgress('Extracting text and policy statements…')
+      const results = await uploadPolicyDoc(uploadFile)
+      setUploadResults(results)
+      setUploadStage('done')
+      setUploadProgress(`Found ${results.length} policy statement${results.length === 1 ? '' : 's'}`)
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed')
+      setUploadStage('idle')
+    }
+  }
+
+  // ── Manual formalize ──────────────────────────────────────────────────────
+
   function selectChip(policy: (typeof DEMO_POLICIES)[number]) {
     setActiveChip(policy.id)
     setNlText(policy.text)
     setLeanCode('')
+    setFormalizeError('')
     setCompileStatus('idle')
     setCompileMessage('')
   }
@@ -88,19 +262,22 @@ export function PolicyPanel() {
   async function handleFormalize() {
     if (!nlText.trim()) return
     setFormalizing(true)
-    // Match against demo policies
-    const match = DEMO_POLICIES.find((p) => nlText.trim() === p.text.trim())
-    if (match) {
-      await new Promise((r) => setTimeout(r, 400)) // brief "thinking" pause
-      setLeanCode(match.lean)
-    } else {
-      // No Aristotle key configured — show a scaffold
-      await new Promise((r) => setTimeout(r, 600))
-      setLeanCode(
-        `import PolicyEnv.Basic\n\n-- TODO: Aristotle API not configured.\n-- Manually write your Lean 4 policy here.\nnamespace PolicyEnv\n\n-- Your policy definition\n\nend PolicyEnv`
-      )
+    setFormalizeError('')
+    setLeanCode('')
+
+    try {
+      const res = await formalizePolicy({ statement: nlText })
+      if (res.status === 'success' && res.lean_code) {
+        setLeanCode(res.lean_code)
+      } else {
+        setFormalizeError(res.error ?? 'Formalization failed')
+        if (res.skeleton) setLeanCode(res.skeleton)
+      }
+    } catch (err) {
+      setFormalizeError(err instanceof Error ? err.message : 'Network error')
+    } finally {
+      setFormalizing(false)
     }
-    setFormalizing(false)
   }
 
   async function handleCompile() {
@@ -112,10 +289,16 @@ export function PolicyPanel() {
     setCompileStatus('compiling')
     setCompileMessage('')
     try {
-      const res = await compilePolicy({ lean_code: leanCode, policy_id: policyId })
+      const res = await compilePolicy({ lean_code: leanCode, policy_id: policyId, description: nlText })
       if (res.success) {
         setCompileStatus('success')
-        setCompileMessage(`Deployed as ${res.policy_id}`)
+        setCompileMessage(
+          res.scenarios_rerun
+            ? `Policy ${res.policy_id} deployed — agent scenarios re-running`
+            : `Deployed as ${res.policy_id}`
+        )
+        onDeployed?.(res.policy_id)
+        loadPolicies()
       } else {
         setCompileStatus('error')
         setCompileMessage(res.error ?? 'Compilation failed')
@@ -126,8 +309,89 @@ export function PolicyPanel() {
     }
   }
 
+  function handleDocDeploy(policyId: string) {
+    onDeployed?.(policyId)
+    loadPolicies()
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="panel-content">
+
+      {/* ── 1. PDF Upload section ─────────────────────────────────────────── */}
+      <div className="section-label">Upload Policy Document</div>
+      <div className="upload-section">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null
+            setUploadFile(f)
+            setUploadStage('idle')
+            setUploadResults([])
+            setUploadError('')
+          }}
+        />
+        {!uploadFile ? (
+          <button
+            className="btn btn-ghost"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Choose PDF…
+          </button>
+        ) : (
+          <div className="upload-file-row">
+            <span className="upload-filename">{uploadFile.name}</span>
+            <span className="upload-filesize">{formatBytes(uploadFile.size)}</span>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => { setUploadFile(null); setUploadStage('idle'); setUploadResults([]) }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {uploadFile && uploadStage !== 'processing' && (
+          <button
+            className="btn btn-primary"
+            onClick={handleExtractAndFormalize}
+            style={{ marginTop: 8 }}
+          >
+            Extract & Formalize
+          </button>
+        )}
+
+        {uploadStage === 'processing' && (
+          <div className="upload-progress">
+            <span className="spinner" style={{ marginRight: 8 }} />
+            {uploadProgress}
+          </div>
+        )}
+
+        {uploadError && (
+          <div className="compile-status compile-status-error">{uploadError}</div>
+        )}
+      </div>
+
+      {uploadResults.length > 0 && (
+        <div className="formalize-results">
+          <div className="section-label">{uploadProgress}</div>
+          {uploadResults.map((r, i) => (
+            <FormalizeResultCard key={i} result={r} onDeploy={handleDocDeploy} />
+          ))}
+        </div>
+      )}
+
+      {/* ── 2. Divider ────────────────────────────────────────────────────── */}
+      <div className="section-divider">
+        <span>or write a policy manually</span>
+      </div>
+
+      {/* ── 3. Manual entry ───────────────────────────────────────────────── */}
       <div className="chip-row">
         {DEMO_POLICIES.map((p) => (
           <button
@@ -146,7 +410,7 @@ export function PolicyPanel() {
         className="nl-textarea"
         placeholder="Describe your compliance rule in plain English…"
         value={nlText}
-        onChange={(e) => setNlText(e.target.value)}
+        onChange={(e) => { setNlText(e.target.value); setActiveChip(null) }}
       />
 
       <button
@@ -155,11 +419,22 @@ export function PolicyPanel() {
         disabled={formalizing || !nlText.trim()}
       >
         {formalizing ? <span className="spinner" /> : null}
-        {formalizing ? 'Formalizing…' : 'Formalize →'}
+        {formalizing ? ` Formalizing… ${formalizeElapsed}s` : 'Formalize →'}
       </button>
+
+      {formalizeError && !leanCode && (
+        <div className="compile-status compile-status-error">{formalizeError}</div>
+      )}
 
       {leanCode && (
         <>
+          {formalizeError && (
+            <div className="compile-status compile-status-error">
+              ⚠ Formalization failed — showing skeleton. Edit before deploying.<br />
+              {formalizeError}
+            </div>
+          )}
+
           <div className="two-col">
             <div className="two-col-pane">
               <div className="pane-header">English</div>
@@ -179,7 +454,7 @@ export function PolicyPanel() {
             disabled={compileStatus === 'compiling'}
           >
             {compileStatus === 'compiling' ? <span className="spinner" /> : null}
-            {compileStatus === 'compiling' ? 'Compiling…' : 'Compile & Deploy'}
+            {compileStatus === 'compiling' ? ' Compiling…' : 'Compile & Deploy'}
           </button>
 
           {compileStatus !== 'idle' && compileStatus !== 'compiling' && (
@@ -188,6 +463,33 @@ export function PolicyPanel() {
               {compileMessage}
             </div>
           )}
+        </>
+      )}
+
+      {/* ── 4. Active Policies ────────────────────────────────────────────── */}
+      {Object.keys(policies).length > 0 && (
+        <>
+          <div className="section-divider" style={{ marginTop: 4 }}>
+            <span>active policies</span>
+          </div>
+          <div className="policy-list">
+            {Object.values(policies).map((p) => (
+              <div key={p.policy_id} className="policy-card">
+                <div className="policy-card-top">
+                  <span className="policy-card-id">{p.policy_id}</span>
+                  <span className="policy-card-name">{p.display_name}</span>
+                </div>
+                {p.description && (
+                  <div className="policy-card-desc">{p.description}</div>
+                )}
+                <div className="policy-card-tools">
+                  {p.applies_to_tools.map((t) => (
+                    <span key={t} className="tool-chip">{t}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </>
       )}
     </div>

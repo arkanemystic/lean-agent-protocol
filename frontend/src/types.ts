@@ -20,12 +20,16 @@ export interface GuardrailResultResponse {
 export interface CompilePolicyRequest {
   lean_code: string
   policy_id: string
+  description?: string
 }
 
 export interface CompilePolicyResponse {
   success: boolean
   error: string | null
   policy_id: string
+  needs_registration?: boolean
+  registered?: boolean
+  scenarios_rerun?: boolean
 }
 
 export interface AuditEntry {
@@ -49,4 +53,43 @@ export interface HealthResponse {
     policies_loaded?: number
     error?: string
   }
+}
+
+// ── Policy registry ──────────────────────────────────────────────────────────
+
+export interface PolicyMetadata {
+  policy_id: string
+  display_name: string
+  lean_module: string
+  lean_function: string
+  applies_to_tools: string[]
+  parameter_map: Record<string, string>
+  param_transforms: Record<string, string>
+  description: string
+}
+
+export interface RegistryResponse {
+  policies: Record<string, PolicyMetadata>
+  count: number
+}
+
+// ── Formalization pipeline ───────────────────────────────────────────────────
+
+export interface FormalizePolicyRequest {
+  statement: string
+}
+
+export interface FormalizePolicyResponse {
+  statement: string
+  skeleton: string
+  lean_code: string | null
+  status: 'success' | 'failed'
+  error: string | null
+  policy_id: string
+}
+
+// ── Sandbox ──────────────────────────────────────────────────────────────────
+
+export interface SandboxParseRequest {
+  description: string
 }

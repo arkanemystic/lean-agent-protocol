@@ -23,13 +23,16 @@ class GuardrailResultResponse(BaseModel):
 class CompilePolicyRequest(BaseModel):
     lean_code: str
     policy_id: str
+    description: str = ""   # optional human-readable description for auto-registration
 
 
 class CompilePolicyResponse(BaseModel):
     success: bool
     error: str | None = None
     policy_id: str
-    needs_registration: bool = False    # True after a successful compile
+    needs_registration: bool = False    # True after a successful compile (legacy)
+    registered: bool = False            # True if auto-registration succeeded
+    scenarios_rerun: bool = False       # True if mock scenario re-run was kicked off
 
 
 class AuditEntry(BaseModel):
@@ -62,3 +65,24 @@ class PolicyMetadata(BaseModel):
 class RegistryResponse(BaseModel):
     policies: dict[str, PolicyMetadata]
     count: int
+
+
+# ── Formalization pipeline schemas ───────────────────────────────────────────
+
+class FormalizePolicyRequest(BaseModel):
+    statement: str
+
+
+class FormalizePolicyResponse(BaseModel):
+    statement: str
+    skeleton: str
+    lean_code: str | None
+    status: str             # "success" | "failed"
+    error: str | None
+    policy_id: str
+
+
+# ── Sandbox schemas ───────────────────────────────────────────────────────────
+
+class SandboxParseRequest(BaseModel):
+    description: str

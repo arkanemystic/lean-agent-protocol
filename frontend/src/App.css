@@ -875,6 +875,308 @@ html, body, #root {
   border: 1px solid var(--border);
 }
 
+/* ─── Toast bar ──────────────────────────────────────────────── */
+.toast-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--blue-dim);
+  border-bottom: 1px solid rgba(77, 166, 255, 0.3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--blue);
+  flex-shrink: 0;
+  animation: slide-down 0.2s ease;
+}
+
+@keyframes slide-down {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+.toast-msg { flex: 1; }
+
+.toast-close {
+  background: none;
+  border: none;
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.6;
+  padding: 0 4px;
+}
+.toast-close:hover { opacity: 1; }
+
+/* ─── Section divider ────────────────────────────────────────── */
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 4px 0;
+}
+.section-divider::before,
+.section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ─── PDF upload ─────────────────────────────────────────────── */
+.upload-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.upload-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.upload-filename {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-filesize {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ─── Formalize result cards ─────────────────────────────────── */
+.formalize-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.formalize-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--border);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formalize-card-success { border-left-color: var(--blue); }
+.formalize-card-failed  { border-left-color: var(--amber); }
+
+.formalize-card-statement {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.formalize-error {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--amber);
+  background: var(--amber-dim);
+  border: 1px solid rgba(245, 166, 35, 0.2);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.formalize-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lean-edit-area {
+  width: 100%;
+  min-height: 120px;
+  background: var(--bg-input);
+  border: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  padding: 10px 12px;
+  resize: vertical;
+  outline: none;
+}
+
+/* ─── Active policy list ─────────────────────────────────────── */
+.policy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.policy-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.policy-card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.policy-card-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.policy-card-name {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.policy-card-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.policy-card-tools {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.tool-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1px 5px;
+}
+
+/* ─── Sandbox panel ──────────────────────────────────────────── */
+.sandbox-json {
+  font-family: var(--font-mono) !important;
+  font-size: 11.5px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.sandbox-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sandbox-save-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sandbox-name-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  padding: 5px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.sandbox-name-input:focus { border-color: var(--border-hi); }
+.sandbox-name-input::placeholder { color: var(--text-muted); }
+
+/* ─── Saved scenarios list ───────────────────────────────────── */
+.saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.saved-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.saved-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.saved-item-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.saved-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.saved-item-call {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.saved-verdict {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
 /* ─── Highlight.js token overrides ───────────────────────────── */
 .hljs-keyword  { color: #c792ea; }
 .hljs-built_in { color: #82aaff; }
