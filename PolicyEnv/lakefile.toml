@@ -1,0 +1,10 @@
+name = "PolicyEnv"
+version = "0.1.0"
+defaultTargets = ["policyenv"]
+
+[[lean_lib]]
+name = "PolicyEnv"
+
+[[lean_exe]]
+name = "policyenv"
+root = "Main"

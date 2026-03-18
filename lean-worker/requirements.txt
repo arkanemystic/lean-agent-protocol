@@ -1,0 +1,2 @@
+# lean-worker uses only Python stdlib (http.server, subprocess, json, etc.)
+# No external dependencies required

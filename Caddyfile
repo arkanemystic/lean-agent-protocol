@@ -1,0 +1,9 @@
+api.YOURDOMAIN.com {
+    reverse_proxy backend:8000
+
+    header {
+        Access-Control-Allow-Origin "https://YOURAPP.vercel.app"
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, Authorization"
+    }
+}

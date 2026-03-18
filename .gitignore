@@ -1,0 +1,23 @@
+# Environment / secrets — never commit real keys
+.env
+backend/.env
+frontend/.env
+
+# Docker build artifacts
+**/node_modules/
+**/__pycache__/
+**/.lake/
+**/*.olean
+**/.python-version
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Vite / Node build output
+frontend/dist/
+frontend/.vite/
+
+# Caddy data (generated at runtime)
+caddy_data/

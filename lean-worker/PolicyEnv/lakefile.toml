@@ -1,0 +1,6 @@
+name = "PolicyEnv"
+version = "0.1.0"
+defaultTargets = ["PolicyEnv"]
+
+[[lean_lib]]
+name = "PolicyEnv"

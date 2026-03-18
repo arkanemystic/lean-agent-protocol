@@ -1,0 +1,53 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_certs:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    # Port 8000 exposed for local dev; on the VPS lock it down with a
+    # Hetzner firewall rule so only port 80/443 are reachable externally.
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ARISTOTLE_API_KEY=${ARISTOTLE_API_KEY:-}
+      - LEAN_WORKER_URL=http://lean-worker:9000
+      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:5173}
+      - AUDIT_LOG_PATH=/app/policy_data/audit.log
+    volumes:
+      - policy_data:/app/policy_data
+    depends_on:
+      lean-worker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  lean-worker:
+    build: ./lean-worker
+    # No external port binding — reachable only within the Docker network.
+    expose:
+      - "9000"
+    volumes:
+      - policy_data:/app/policy_data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  policy_data:
+  caddy_data:
+  caddy_certs:
