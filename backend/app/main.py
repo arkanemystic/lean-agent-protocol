@@ -10,13 +10,14 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Set
+from typing import Any, AsyncGenerator, Set
 
 import anthropic
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from . import back_translator, formalizer, orchestrator
 from .models import (
@@ -124,6 +125,46 @@ class AuditBroadcaster:
 broadcaster = AuditBroadcaster()
 
 
+# ---------------------------------------------------------------------------- log broadcaster
+
+
+class LogBroadcaster:
+    """Fan-out server log events to all SSE clients."""
+
+    def __init__(self) -> None:
+        self._queues: Set[asyncio.Queue] = set()
+
+    def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=200)
+        self._queues.add(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        self._queues.discard(q)
+
+    def publish(self, level: str, message: str) -> None:
+        """Synchronous — safe to call from non-async helpers."""
+        event = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": level,
+            "msg": message,
+        }
+        data = f"data: {json.dumps(event)}\n\n"
+        for q in list(self._queues):
+            try:
+                q.put_nowait(data)
+            except asyncio.QueueFull:
+                pass  # drop if client is too slow
+
+
+log_broadcaster = LogBroadcaster()
+
+
+def log_event(level: str, message: str) -> None:
+    """Emit a log event to all connected SSE clients."""
+    log_broadcaster.publish(level, message)
+
+
 # ---------------------------------------------------------------------------- helpers
 
 
@@ -165,6 +206,7 @@ def _infer_policy_metadata(policy_id: str, lean_code: str, description: str = ""
 async def _run_one_scenario(scenario: dict[str, Any]) -> None:
     """Run a single mock scenario through orchestrator and broadcast the result."""
     call_id = str(uuid.uuid4())
+    log_event("info", f"→ {scenario['tool_name']}({scenario['params']})")
     try:
         worker_resp = await orchestrator.verify(
             tool_name=scenario["tool_name"],
@@ -205,7 +247,12 @@ async def _run_one_scenario(scenario: dict[str, Any]) -> None:
         )
         _append_audit(entry)
         await broadcaster.publish(entry.model_dump())
+        log_event(
+            "success" if verdict == "allowed" else "warn",
+            f"  {verdict.upper()} — {policy_id} — {latency_us/1000:.1f}ms",
+        )
     except Exception as exc:
+        log_event("error", f"  scenario error: {exc}")
         print(f"_run_one_scenario error: {exc}", flush=True)
 
 
@@ -287,6 +334,7 @@ async def api_verify(req: ToolCallRequest):
 
 @app.post("/api/compile-policy", response_model=CompilePolicyResponse)
 async def api_compile_policy(req: CompilePolicyRequest):
+    log_event("info", f"Compiling policy {req.policy_id}…")
     result = await orchestrator.compile_policy(
         lean_code=req.lean_code,
         policy_id=req.policy_id,
@@ -296,16 +344,24 @@ async def api_compile_policy(req: CompilePolicyRequest):
     registered = False
     scenarios_rerun = False
 
+    if result["success"]:
+        log_event("success", f"Policy {req.policy_id} compiled successfully")
+    else:
+        log_event("error", f"Policy {req.policy_id} compilation failed: {result.get('error', '?')}")
+
     if result["success"] and req.policy_id not in _DEFAULT_POLICY_IDS:
         # Auto-register the newly compiled policy.
         try:
             meta = _infer_policy_metadata(req.policy_id, req.lean_code, req.description)
             register_policy(meta)
             registered = True
+            log_event("info", f"Policy {req.policy_id} registered in registry")
         except Exception as exc:
+            log_event("warn", f"Auto-registration failed for {req.policy_id}: {exc}")
             print(f"Auto-registration failed for {req.policy_id}: {exc}", flush=True)
 
         # Fire mock scenarios in the background so the audit log populates via WebSocket.
+        log_event("info", "Re-running mock scenarios against updated policy set…")
         asyncio.create_task(_rerun_scenarios_background())
         scenarios_rerun = True
 
@@ -351,8 +407,17 @@ async def api_formalize_policy(req: FormalizePolicyRequest):
     Two-step pipeline: NL statement → Lean 4 skeleton → Aristotle-verified Lean 4.
     Takes 30-120 seconds; runs fully async.
     """
-    result = await formalizer.formalize(req.statement)
-    return FormalizePolicyResponse(**result)
+    log_event("info", f"Formalizing policy statement: {req.statement[:80]}…")
+    try:
+        result = await formalizer.formalize(req.statement)
+        if result.get("status") == "success":
+            log_event("success", f"Formalization succeeded → {result.get('policy_id', '?')}")
+        else:
+            log_event("warn", f"Formalization partial: {result.get('error', 'unknown error')}")
+        return FormalizePolicyResponse(**result)
+    except Exception as exc:
+        log_event("error", f"Formalization failed: {exc}")
+        raise
 
 
 @app.post("/api/upload-policy-doc")
@@ -369,22 +434,28 @@ async def api_upload_policy_doc(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File exceeds 10 MB limit.")
 
     # Extract text from PDF
+    log_event("info", f"Processing PDF: {file.filename} ({len(contents):,} bytes)")
     try:
         import io
         import pypdf  # type: ignore[import]
         reader = pypdf.PdfReader(io.BytesIO(contents))
         pages = [page.extract_text() or "" for page in reader.pages]
         text = "\n\n".join(p for p in pages if p.strip())
+        log_event("info", f"Extracted {len(reader.pages)} pages, {len(text):,} chars")
     except Exception as exc:
+        log_event("error", f"PDF extraction failed: {exc}")
         raise HTTPException(status_code=422, detail=f"PDF text extraction failed: {exc}")
 
     if not text.strip():
         raise HTTPException(status_code=422, detail="No readable text found in PDF.")
 
     # Extract atomic policy statements via Claude
+    log_event("info", "Extracting policy statements via Claude…")
     try:
         statements = await formalizer.extract_policy_statements(text)
+        log_event("info", f"Found {len(statements)} policy statement(s)")
     except Exception as exc:
+        log_event("error", f"Statement extraction failed: {exc}")
         raise HTTPException(status_code=500, detail=f"Statement extraction failed: {exc}")
 
     # Cap at 10 statements
@@ -392,8 +463,14 @@ async def api_upload_policy_doc(file: UploadFile = File(...)):
 
     # Formalize each statement
     results = []
-    for statement in statements:
+    for i, statement in enumerate(statements, 1):
+        log_event("info", f"[{i}/{len(statements)}] Formalizing: {statement[:60]}…")
         result = await formalizer.formalize(statement)
+        status = result.get("status", "?")
+        log_event(
+            "success" if status == "success" else "warn",
+            f"[{i}/{len(statements)}] {status} → {result.get('policy_id', '?')}",
+        )
         results.append(result)
 
     return results
@@ -412,6 +489,7 @@ async def api_sandbox_parse(req: SandboxParseRequest):
     if not api_key:
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY is not set.")
 
+    log_event("info", f"Sandbox: parsing '{req.description[:60]}…'")
     client = anthropic.AsyncAnthropic(api_key=api_key)
     response = await client.messages.create(
         model="claude-sonnet-4-6",
@@ -424,9 +502,49 @@ async def api_sandbox_parse(req: SandboxParseRequest):
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        log_event("success", f"Sandbox: parsed as {parsed.get('tool_name', '?')}({list(parsed.get('params', {}).keys())})")
+        return parsed
     except json.JSONDecodeError as exc:
+        log_event("error", f"Sandbox: Claude returned invalid JSON: {exc}")
         raise HTTPException(status_code=500, detail=f"Claude returned invalid JSON: {exc}")
+
+
+# ---------------------------------------------------------------------------- SSE log stream
+
+
+@app.get("/api/logs/stream")
+async def api_log_stream():
+    """
+    Server-Sent Events stream of backend log messages.
+    Reconnects automatically via the EventSource protocol.
+    """
+    q = log_broadcaster.subscribe()
+
+    async def generator() -> AsyncGenerator[str, None]:
+        # Send a keepalive comment immediately so the browser knows the stream is live.
+        yield ": connected\n\n"
+        try:
+            while True:
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield data
+                except asyncio.TimeoutError:
+                    # Send a keepalive ping to prevent proxy timeouts.
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            log_broadcaster.unsubscribe(q)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable Nginx/Caddy/Traefik buffering
+        },
+    )
 
 
 # ---------------------------------------------------------------------------- audit log

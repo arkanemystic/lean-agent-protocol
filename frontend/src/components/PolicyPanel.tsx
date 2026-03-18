@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { compilePolicy, formalizePolicy, getPolicies, uploadPolicyDoc } from '../api/client'
 import { HighlightedCode } from './AgentPanel'
 import { hljs } from '../lib/lean4-hljs'
+import { useAppState } from '../store/AppContext'
 import type { FormalizePolicyResponse, PolicyMetadata } from '../types'
 
 // ── Demo policy chips (pre-loaded, for the judge walkthrough) ─────────────────
@@ -176,21 +177,14 @@ interface Props {
 }
 
 export function PolicyPanel({ onDeployed }: Props) {
-  // PDF upload state
+  const { state, dispatch } = useAppState()
+  const { policyEditor, pdfUpload } = state
+
+  // PDF upload file object lives locally (not serializable to context)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [uploadStage, setUploadStage] = useState<'idle' | 'processing' | 'done'>('idle')
-  const [uploadProgress, setUploadProgress] = useState('')
-  const [uploadResults, setUploadResults] = useState<FormalizePolicyResponse[]>([])
-  const [uploadError, setUploadError] = useState('')
 
-  // Manual policy state
-  const [nlText, setNlText] = useState('')
-  const [leanCode, setLeanCode] = useState('')
-  const [activeChip, setActiveChip] = useState<string | null>(null)
-  const [formalizing, setFormalizing] = useState(false)
-  const [formalizeElapsed, setFormalizeElapsed] = useState(0)
-  const [formalizeError, setFormalizeError] = useState('')
+  // Compile status is local (transient per-session interaction)
   const [compileStatus, setCompileStatus] = useState<'idle' | 'compiling' | 'success' | 'error'>('idle')
   const [compileMessage, setCompileMessage] = useState('')
 
@@ -213,83 +207,96 @@ export function PolicyPanel({ onDeployed }: Props) {
 
   // Re-highlight when lean code changes
   useEffect(() => {
-    if (codeRef.current && leanCode) {
-      const result = hljs.highlight(leanCode, { language: 'lean4' })
+    if (codeRef.current && policyEditor.formalizedLean) {
+      const result = hljs.highlight(policyEditor.formalizedLean, { language: 'lean4' })
       codeRef.current.innerHTML = result.value
     } else if (codeRef.current) {
       codeRef.current.innerHTML = ''
     }
-  }, [leanCode])
+  }, [policyEditor.formalizedLean])
 
   // Elapsed-time ticker while formalizing
   useEffect(() => {
-    if (!formalizing) { setFormalizeElapsed(0); return }
-    const t = setInterval(() => setFormalizeElapsed((s) => s + 1), 1000)
+    if (policyEditor.status !== 'formalizing') {
+      dispatch({ type: 'SET_POLICY_EDITOR', payload: { elapsedSeconds: 0 } })
+      return
+    }
+    const t = setInterval(() => {
+      dispatch({ type: 'SET_POLICY_EDITOR', payload: { elapsedSeconds: policyEditor.elapsedSeconds + 1 } })
+    }, 1000)
     return () => clearInterval(t)
-  }, [formalizing])
+  }, [policyEditor.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── PDF upload ────────────────────────────────────────────────────────────
 
   async function handleExtractAndFormalize() {
     if (!uploadFile) return
-    setUploadStage('processing')
-    setUploadError('')
-    setUploadResults([])
-    setUploadProgress('Uploading…')
+    dispatch({ type: 'SET_PDF_UPLOAD', payload: { status: 'processing', error: '', results: [], progress: 'Uploading…' } })
     try {
-      setUploadProgress('Extracting text and policy statements…')
+      dispatch({ type: 'SET_PDF_UPLOAD', payload: { progress: 'Extracting text and policy statements…' } })
       const results = await uploadPolicyDoc(uploadFile)
-      setUploadResults(results)
-      setUploadStage('done')
-      setUploadProgress(`Found ${results.length} policy statement${results.length === 1 ? '' : 's'}`)
+      dispatch({ type: 'SET_PDF_UPLOAD', payload: {
+        results,
+        status: 'done',
+        progress: `Found ${results.length} policy statement${results.length === 1 ? '' : 's'}`,
+      }})
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload failed')
-      setUploadStage('idle')
+      dispatch({ type: 'SET_PDF_UPLOAD', payload: {
+        error: err instanceof Error ? err.message : 'Upload failed',
+        status: 'idle',
+      }})
     }
   }
 
   // ── Manual formalize ──────────────────────────────────────────────────────
 
   function selectChip(policy: (typeof DEMO_POLICIES)[number]) {
-    setActiveChip(policy.id)
-    setNlText(policy.text)
-    setLeanCode('')
-    setFormalizeError('')
+    dispatch({ type: 'SET_POLICY_EDITOR', payload: {
+      activeChip: policy.id,
+      inputText: policy.text,
+      formalizedLean: null,
+      error: null,
+      status: 'idle',
+    }})
     setCompileStatus('idle')
     setCompileMessage('')
   }
 
   async function handleFormalize() {
-    if (!nlText.trim()) return
-    setFormalizing(true)
-    setFormalizeError('')
-    setLeanCode('')
+    const text = policyEditor.inputText
+    if (!text.trim()) return
+    dispatch({ type: 'SET_POLICY_EDITOR', payload: { status: 'formalizing', error: null, formalizedLean: null, elapsedSeconds: 0 } })
 
     try {
-      const res = await formalizePolicy({ statement: nlText })
+      const res = await formalizePolicy({ statement: text })
       if (res.status === 'success' && res.lean_code) {
-        setLeanCode(res.lean_code)
+        dispatch({ type: 'SET_POLICY_EDITOR', payload: { formalizedLean: res.lean_code, policyId: res.policy_id, status: 'success', error: null } })
       } else {
-        setFormalizeError(res.error ?? 'Formalization failed')
-        if (res.skeleton) setLeanCode(res.skeleton)
+        dispatch({ type: 'SET_POLICY_EDITOR', payload: {
+          error: res.error ?? 'Formalization failed',
+          formalizedLean: res.skeleton ?? null,
+          status: 'error',
+        }})
       }
     } catch (err) {
-      setFormalizeError(err instanceof Error ? err.message : 'Network error')
-    } finally {
-      setFormalizing(false)
+      dispatch({ type: 'SET_POLICY_EDITOR', payload: {
+        error: err instanceof Error ? err.message : 'Network error',
+        status: 'error',
+      }})
     }
   }
 
   async function handleCompile() {
-    if (!leanCode.trim()) return
-    const policyId = activeChip
-      ? DEMO_POLICIES.find((p) => p.id === activeChip)?.displayId ?? 'CUSTOM'
-      : `CUSTOM-${Date.now()}`
+    const leanCode = policyEditor.formalizedLean
+    if (!leanCode?.trim()) return
+    const policyId = policyEditor.activeChip
+      ? DEMO_POLICIES.find((p) => p.id === policyEditor.activeChip)?.displayId ?? 'CUSTOM'
+      : policyEditor.policyId ?? `CUSTOM-${Date.now()}`
 
     setCompileStatus('compiling')
     setCompileMessage('')
     try {
-      const res = await compilePolicy({ lean_code: leanCode, policy_id: policyId, description: nlText })
+      const res = await compilePolicy({ lean_code: leanCode, policy_id: policyId, description: policyEditor.inputText })
       if (res.success) {
         setCompileStatus('success')
         setCompileMessage(
@@ -314,6 +321,11 @@ export function PolicyPanel({ onDeployed }: Props) {
     loadPolicies()
   }
 
+  const isFormalizing = policyEditor.status === 'formalizing'
+  const leanCode = policyEditor.formalizedLean
+  const formalizeError = policyEditor.error
+  const formalizeElapsed = policyEditor.elapsedSeconds
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -330,9 +342,13 @@ export function PolicyPanel({ onDeployed }: Props) {
           onChange={(e) => {
             const f = e.target.files?.[0] ?? null
             setUploadFile(f)
-            setUploadStage('idle')
-            setUploadResults([])
-            setUploadError('')
+            dispatch({ type: 'SET_PDF_UPLOAD', payload: {
+              filename: f?.name ?? null,
+              status: 'idle',
+              results: [],
+              error: '',
+              progress: '',
+            }})
           }}
         />
         {!uploadFile ? (
@@ -348,14 +364,17 @@ export function PolicyPanel({ onDeployed }: Props) {
             <span className="upload-filesize">{formatBytes(uploadFile.size)}</span>
             <button
               className="btn btn-ghost btn-sm"
-              onClick={() => { setUploadFile(null); setUploadStage('idle'); setUploadResults([]) }}
+              onClick={() => {
+                setUploadFile(null)
+                dispatch({ type: 'SET_PDF_UPLOAD', payload: { filename: null, status: 'idle', results: [], progress: '', error: '' } })
+              }}
             >
               ✕
             </button>
           </div>
         )}
 
-        {uploadFile && uploadStage !== 'processing' && (
+        {uploadFile && pdfUpload.status !== 'processing' && (
           <button
             className="btn btn-primary"
             onClick={handleExtractAndFormalize}
@@ -365,22 +384,22 @@ export function PolicyPanel({ onDeployed }: Props) {
           </button>
         )}
 
-        {uploadStage === 'processing' && (
+        {pdfUpload.status === 'processing' && (
           <div className="upload-progress">
             <span className="spinner" style={{ marginRight: 8 }} />
-            {uploadProgress}
+            {pdfUpload.progress}
           </div>
         )}
 
-        {uploadError && (
-          <div className="compile-status compile-status-error">{uploadError}</div>
+        {pdfUpload.error && (
+          <div className="compile-status compile-status-error">{pdfUpload.error}</div>
         )}
       </div>
 
-      {uploadResults.length > 0 && (
+      {pdfUpload.results.length > 0 && (
         <div className="formalize-results">
-          <div className="section-label">{uploadProgress}</div>
-          {uploadResults.map((r, i) => (
+          <div className="section-label">{pdfUpload.progress}</div>
+          {pdfUpload.results.map((r, i) => (
             <FormalizeResultCard key={i} result={r} onDeploy={handleDocDeploy} />
           ))}
         </div>
@@ -396,7 +415,7 @@ export function PolicyPanel({ onDeployed }: Props) {
         {DEMO_POLICIES.map((p) => (
           <button
             key={p.id}
-            className={`chip${activeChip === p.id ? ' chip-active' : ''}`}
+            className={`chip${policyEditor.activeChip === p.id ? ' chip-active' : ''}`}
             onClick={() => selectChip(p)}
           >
             <span className="chip-id">{p.displayId}</span>
@@ -409,17 +428,17 @@ export function PolicyPanel({ onDeployed }: Props) {
       <textarea
         className="nl-textarea"
         placeholder="Describe your compliance rule in plain English…"
-        value={nlText}
-        onChange={(e) => { setNlText(e.target.value); setActiveChip(null) }}
+        value={policyEditor.inputText}
+        onChange={(e) => dispatch({ type: 'SET_POLICY_EDITOR', payload: { inputText: e.target.value, activeChip: null } })}
       />
 
       <button
         className="btn btn-primary"
         onClick={handleFormalize}
-        disabled={formalizing || !nlText.trim()}
+        disabled={isFormalizing || !policyEditor.inputText.trim()}
       >
-        {formalizing ? <span className="spinner" /> : null}
-        {formalizing ? ` Formalizing… ${formalizeElapsed}s` : 'Formalize →'}
+        {isFormalizing ? <span className="spinner" /> : null}
+        {isFormalizing ? ` Formalizing… ${formalizeElapsed}s` : 'Formalize →'}
       </button>
 
       {formalizeError && !leanCode && (
@@ -438,7 +457,7 @@ export function PolicyPanel({ onDeployed }: Props) {
           <div className="two-col">
             <div className="two-col-pane">
               <div className="pane-header">English</div>
-              <div className="pane-text">{nlText}</div>
+              <div className="pane-text">{policyEditor.inputText}</div>
             </div>
             <div className="two-col-pane">
               <div className="pane-header">Lean 4</div>

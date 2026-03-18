@@ -5,6 +5,7 @@ import { AgentPanel } from './components/AgentPanel'
 import { StatusPanel } from './components/StatusPanel'
 import { SandboxPanel } from './components/SandboxPanel'
 import { AuditLog } from './components/AuditLog'
+import { LogStream } from './components/LogStream'
 import { useAuditStream } from './hooks/useAuditStream'
 import './App.css'
 
@@ -77,6 +78,8 @@ export default function App() {
             {tab === 'sandbox' && <SandboxPanel />}
             {tab === 'status' && <StatusPanel />}
           </div>
+
+          <LogStream />
         </div>
 
         {/* Divider */}

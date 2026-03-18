@@ -1,47 +1,30 @@
 import { useState } from 'react'
 import { sandboxParse, verify } from '../api/client'
-import { AgentCard, VerdictCard } from './AgentPanel'
+import { AgentCard } from './AgentPanel'
+import { useAppState } from '../store/AppContext'
 import type { CardState } from './AgentPanel'
 import type { GuardrailResultResponse, ToolCallRequest } from '../types'
-
-const STORAGE_KEY = 'lean_agent_saved_scenarios'
-
-interface SavedScenario {
-  id: string
-  name: string
-  toolCall: ToolCallRequest
-  lastResult?: GuardrailResultResponse
-  savedAt: string
-}
-
-function loadSaved(): SavedScenario[] {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]')
-  } catch {
-    return []
-  }
-}
-
-function saveSaved(items: SavedScenario[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
-}
+import type { SavedScenario } from '../store/AppContext'
 
 export function SandboxPanel() {
-  const [nlInput, setNlInput] = useState('')
+  const { state, dispatch } = useAppState()
+  const { sandbox } = state
+
+  // Local-only: in-flight state that doesn't need to persist across tab switches
   const [parsing, setParsing] = useState(false)
-  const [parsedJson, setParsedJson] = useState('')
   const [parseError, setParseError] = useState('')
-
   const [verifying, setVerifying] = useState(false)
-  const [verifyResult, setVerifyResult] = useState<GuardrailResultResponse | null>(null)
   const [verifyError, setVerifyError] = useState('')
-
   const [saveName, setSaveName] = useState('')
-  const [saved, setSaved] = useState<SavedScenario[]>(loadSaved)
-
-  // Per-saved-scenario running state
   const [runningId, setRunningId] = useState<string | null>(null)
   const [runResults, setRunResults] = useState<Record<string, GuardrailResultResponse>>({})
+
+  const { inputText: nlInput, parsedJson, lastVerdict: verifyResult, savedScenarios: saved } = sandbox
+
+  function setNlInput(v: string) { dispatch({ type: 'SET_SANDBOX', payload: { inputText: v } }) }
+  function setParsedJson(v: string) { dispatch({ type: 'SET_SANDBOX', payload: { parsedJson: v } }) }
+  function setVerifyResult(v: GuardrailResultResponse | null) { dispatch({ type: 'SET_SANDBOX', payload: { lastVerdict: v } }) }
+  function setSaved(items: SavedScenario[]) { dispatch({ type: 'SET_SANDBOX', payload: { savedScenarios: items } }) }
 
   // ── Parse ──────────────────────────────────────────────────────────────────
 
@@ -101,27 +84,21 @@ export function SandboxPanel() {
       lastResult: verifyResult ?? undefined,
       savedAt: new Date().toISOString(),
     }
-    const updated = [item, ...saved]
-    setSaved(updated)
-    saveSaved(updated)
+    setSaved([item, ...saved])
     setSaveName('')
   }
 
   function handleDeleteSaved(id: string) {
-    const updated = saved.filter((s) => s.id !== id)
-    setSaved(updated)
-    saveSaved(updated)
+    setSaved(saved.filter((s) => s.id !== id))
   }
 
   async function handleRunSaved(scenario: SavedScenario) {
     setRunningId(scenario.id)
     try {
       const result = await verify({ ...scenario.toolCall, agent_id: 'sandbox' })
-      const updated = saved.map((s) =>
+      setSaved(saved.map((s) =>
         s.id === scenario.id ? { ...s, lastResult: result } : s
-      )
-      setSaved(updated)
-      saveSaved(updated)
+      ))
       setRunResults((prev) => ({ ...prev, [scenario.id]: result }))
     } catch {
       // ignore — keep previous result

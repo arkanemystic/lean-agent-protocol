@@ -114,6 +114,11 @@ html, body, #root {
   50%       { opacity: 0.4; box-shadow: none; }
 }
 
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
 /* ─── Split panels ───────────────────────────────────────────── */
 .left-panel {
   width: 40%;
@@ -1176,6 +1181,95 @@ html, body, #root {
   gap: 6px;
   margin-top: 2px;
 }
+
+/* ─── Log stream panel ───────────────────────────────────────── */
+.log-stream-panel {
+  flex-shrink: 0;
+  height: 180px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.log-stream-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+}
+
+.log-stream-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.log-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  margin-left: auto;
+}
+
+.log-dot-live {
+  background: var(--green);
+  box-shadow: 0 0 5px var(--green);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.log-clear-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.log-clear-btn:hover { color: var(--text-muted); }
+
+.log-stream-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.log-empty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 8px 10px;
+}
+
+.log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 1px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-ts {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.log-entry-info  .log-msg { color: var(--text-muted); }
+.log-entry-success .log-msg { color: var(--green); }
+.log-entry-warn  .log-msg { color: var(--amber); }
+.log-entry-error .log-msg { color: var(--red); }
 
 /* ─── Highlight.js token overrides ───────────────────────────── */
 .hljs-keyword  { color: #c792ea; }
