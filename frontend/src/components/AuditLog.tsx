@@ -196,13 +196,13 @@ export function AuditLog({ entries, wsStatus }: Props) {
             className={`ws-dot${connected ? ' pulse' : ''}`}
             style={{ background: connected ? 'var(--green)' : 'var(--muted)' }}
           />
-          <span className="audit-title">Audit Log</span>
+          <span className="audit-title">// audit.jsonl — append-only</span>
           {entries.length > 0 && (
             <span className="audit-count">{entries.length} events</span>
           )}
           {avgLatencyMs !== null && (
             <span className="audit-avg-latency">
-              avg kernel latency: {avgLatencyMs.toFixed(1)}ms
+              <span className="audit-lambda">λ</span> avg kernel latency: {avgLatencyMs.toFixed(1)}ms
             </span>
           )}
         </div>

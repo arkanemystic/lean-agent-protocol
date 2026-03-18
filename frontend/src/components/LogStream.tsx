@@ -70,7 +70,7 @@ export function LogStream() {
   return (
     <div className="log-stream-panel">
       <div className="log-stream-header">
-        <span className="log-stream-title">Server Log</span>
+        <span className="log-stream-title">// system.log</span>
         <span className={`log-dot${connected ? ' log-dot-live' : ''}`} />
         {entries.length > 0 && (
           <button className="log-clear-btn" onClick={() => setEntries([])}>
@@ -79,6 +79,9 @@ export function LogStream() {
         )}
       </div>
       <div className="log-stream-body" ref={bodyRef}>
+        <div className="log-static-header">
+          AXIOM PROTOCOL — runtime telemetry — {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' })}
+        </div>
         {entries.length === 0 ? (
           <div className="log-empty">{connected ? 'Waiting for events…' : 'Connecting…'}</div>
         ) : (
