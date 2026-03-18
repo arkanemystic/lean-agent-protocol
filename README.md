@@ -123,7 +123,7 @@ Judge's browser
 | Frontend | React + Vite + TypeScript | IBM Plex fonts, highlight.js Lean 4 |
 | Backend | FastAPI + uvicorn | Orchestrator, back-translator, audit log |
 | Lean worker | Python http.server + elan + lake | `.olean` binaries baked into Docker image |
-| Reverse proxy | Caddy 2 | Automatic TLS via Let's Encrypt |
+| Reverse proxy | Traefik (via Coolify) | Automatic TLS via Let's Encrypt |
 | Verification | Lean 4 `decide` tactic | Nat basis-point arithmetic, fully decidable |
 | Audit log | Append-only JSONL on shared Docker volume | Streams over WebSocket |
 
@@ -135,32 +135,25 @@ Lean 4's kernel can *decide* propositions over `Nat` (natural numbers) at compil
 
 ## Deployment
 
-### Hetzner VPS (backend + lean-worker + Caddy)
+### VPS (backend + lean-worker via Coolify)
+
+The backend runs on a VPS managed by [Coolify](https://coolify.io/). Coolify's built-in Traefik proxy handles TLS termination and routing — no Caddy or manual reverse proxy configuration needed.
 
 ```bash
-# 1. SSH into the VPS and clone the repo
-ssh root@YOUR_VPS_IP
-git clone https://github.com/YOURUSER/lean-agent-protocol /opt/lean-agent-protocol
-cd /opt/lean-agent-protocol
+# 1. In Coolify, create a new Docker Compose application pointing at this repo.
 
-# 2. Configure secrets
-cp .env.example .env
-nano .env   # fill in ANTHROPIC_API_KEY, FRONTEND_ORIGIN
+# 2. Configure secrets in the Coolify environment variables panel:
+#    ANTHROPIC_API_KEY=...
+#    FRONTEND_ORIGIN=https://axiom.devrashie.space
 
-# 3. Edit the Caddyfile — replace YOURDOMAIN and YOURAPP
-nano Caddyfile
-
-# 4. Start everything
-docker compose up -d --build
-
-# 5. Confirm services are healthy
-docker compose ps
-curl http://localhost:8000/api/health
+# 3. Coolify will run docker compose up automatically on each deploy.
+#    Traefik picks up the labels on the backend service and routes
+#    api.devrashie.space → backend:8000 with automatic TLS.
 ```
 
-**Firewall**: allow ports 80 and 443 inbound; block 8000 and 9000 from external access (Caddy is the only public entrypoint).
+The `docker-compose.yml` backend service carries Traefik labels so Coolify's proxy routes `api.devrashie.space` to it automatically. The lean-worker has no external port binding and is only reachable within the Docker network.
 
-#### Subsequent deploys
+#### Manual / SSH deploys
 
 ```bash
 # From your local machine:
@@ -170,7 +163,7 @@ VPS_HOST=YOUR_VPS_IP ./deploy.sh
 #### Smoke test
 
 ```bash
-API_BASE=https://api.yourdomain.com ./smoke-test.sh
+API_BASE=https://api.devrashie.space ./smoke-test.sh
 ```
 
 ### Vercel (frontend)
@@ -179,7 +172,7 @@ API_BASE=https://api.yourdomain.com ./smoke-test.sh
 2. Set root directory to `frontend`
 3. Add environment variable:
    ```
-   VITE_API_URL=https://api.YOURDOMAIN.com
+   VITE_API_URL=https://api.devrashie.space
    ```
 4. Deploy — Vercel auto-detects Vite and runs `npm run build`
 

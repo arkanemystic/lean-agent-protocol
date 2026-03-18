@@ -1,24 +1,6 @@
 services:
-  caddy:
-    image: caddy:2-alpine
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"   # HTTP/3
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_certs:/config
-    depends_on:
-      - backend
-    restart: unless-stopped
-
   backend:
     build: ./backend
-    # Port 8000 exposed for local dev; on the VPS lock it down with a
-    # Hetzner firewall rule so only port 80/443 are reachable externally.
-    ports:
-      - "8000:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ARISTOTLE_API_KEY=${ARISTOTLE_API_KEY:-}
@@ -27,10 +9,20 @@ services:
       - AUDIT_LOG_PATH=/app/policy_data/audit.log
     volumes:
       - policy_data:/app/policy_data
+    networks:
+      - default
+      - coolify
     depends_on:
       lean-worker:
         condition: service_healthy
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.lean-backend.rule=Host(`api.devrashie.space`)"
+      - "traefik.http.routers.lean-backend.entrypoints=https"
+      - "traefik.http.routers.lean-backend.tls=true"
+      - "traefik.http.routers.lean-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.lean-backend.loadbalancer.server.port=8000"
 
   lean-worker:
     build: ./lean-worker
@@ -49,5 +41,7 @@ services:
 
 volumes:
   policy_data:
-  caddy_data:
-  caddy_certs:
+
+networks:
+  coolify:
+    external: true

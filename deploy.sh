@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy.sh — Push latest main to the Hetzner VPS and restart services.
+# deploy.sh — Push latest main to the VPS and restart services via Coolify.
 #
 # Usage:
 #   ./deploy.sh
@@ -37,8 +37,8 @@ ssh -o StrictHostKeyChecking=accept-new "${VPS_USER}@${VPS_HOST}" bash <<EOF
   sleep 8
   docker compose ps
 
-  echo "  → quick health check"
-  curl -sf http://localhost:8000/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('  backend:', d['backend'], '| lean_worker:', d['lean_worker']['status'])"
+  echo "  → quick health check (via Traefik)"
+  curl -sf https://api.devrashie.space/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('  backend:', d['backend'], '| lean_worker:', d['lean_worker']['status'])"
 EOF
 
 echo "✓ Deploy complete"
