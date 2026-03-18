@@ -743,6 +743,138 @@ html, body, #root {
   overflow-x: auto;
 }
 
+/* ─── Conjecture box ─────────────────────────────────────────── */
+.conjecture-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.conjecture-box-sm {
+  margin-top: 2px;
+}
+
+.conjecture-label {
+  padding: 4px 10px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+}
+
+.conjecture-pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: transparent;
+}
+
+.conjecture-pre-sm {
+  padding: 8px 10px;
+}
+
+.conjecture-pre code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  background: transparent;
+}
+
+/* ─── Latency — primary metric ───────────────────────────────── */
+.latency-primary {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.latency-fast   { color: var(--blue); }
+.latency-normal { color: var(--text-muted); }
+.latency-slow   { color: var(--amber); }
+
+/* ─── Audit header avg latency ───────────────────────────────── */
+.audit-avg-latency {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--blue);
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--blue-dim);
+  border: 1px solid rgba(77, 166, 255, 0.2);
+}
+
+/* ─── Verification breakdown ─────────────────────────────────── */
+.trace-breakdown {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.breakdown-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.breakdown-row {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.breakdown-key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.breakdown-val {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.mono { font-family: var(--font-mono); }
+
+.breakdown-result-allowed { color: var(--blue); font-weight: 600; }
+.breakdown-result-blocked  { color: var(--amber); font-weight: 600; }
+.breakdown-result-skipped  { color: var(--text-muted); }
+
+.breakdown-unparsed {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.raw-toggle {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.raw-toggle:hover { color: var(--text-muted); }
+
+/* ─── Verdict skipped ────────────────────────────────────────── */
+.verdict-skipped {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
 /* ─── Highlight.js token overrides ───────────────────────────── */
 .hljs-keyword  { color: #c792ea; }
 .hljs-built_in { color: #82aaff; }

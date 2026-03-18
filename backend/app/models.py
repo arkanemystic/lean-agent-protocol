@@ -17,6 +17,7 @@ class GuardrailResultResponse(BaseModel):
     lean_trace: str
     latency_us: int
     policy_id: str
+    conjecture: str = ""    # exact Lean 4 string submitted to the kernel
 
 
 class CompilePolicyRequest(BaseModel):
@@ -42,6 +43,7 @@ class AuditEntry(BaseModel):
     lean_trace: str
     explanation: str
     latency_us: int
+    conjecture: str = ""    # exact Lean 4 string submitted to the kernel
 
 
 # ── Policy registry schemas ──────────────────────────────────────────────────

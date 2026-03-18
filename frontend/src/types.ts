@@ -9,11 +9,12 @@ export interface ToolCallRequest {
 
 export interface GuardrailResultResponse {
   call_id: string
-  verdict: 'allowed' | 'blocked'
+  verdict: 'allowed' | 'blocked' | 'skipped'
   explanation: string
   lean_trace: string
   latency_us: number
   policy_id: string
+  conjecture: string
 }
 
 export interface CompilePolicyRequest {
@@ -33,11 +34,12 @@ export interface AuditEntry {
   agent_id: string
   tool_name: string
   params: Record<string, unknown>
-  verdict: 'allowed' | 'blocked'
+  verdict: 'allowed' | 'blocked' | 'skipped'
   policy_id: string
   lean_trace: string
   explanation: string
   latency_us: number
+  conjecture: string
 }
 
 export interface HealthResponse {

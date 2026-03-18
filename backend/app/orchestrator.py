@@ -73,10 +73,12 @@ async def verify(
             "trace": "",
             "latency_us": 0,
             "policy_id": "NONE",
+            "conjecture": "",
         }
 
     total_latency: int = 0
     proved_ids: list[str] = []
+    last_conjecture: str = ""
 
     async with httpx.AsyncClient(timeout=35.0) as client:
         for policy in policies:
@@ -85,6 +87,8 @@ async def verify(
             except (KeyError, ValueError):
                 # Required params absent or unconvertible — skip this policy
                 continue
+
+            last_conjecture = conjecture
 
             resp = await client.post(
                 f"{lean_worker_url}/verify",
@@ -103,6 +107,7 @@ async def verify(
                     "trace": worker_resp.get("trace", ""),
                     "latency_us": total_latency,
                     "policy_id": policy["policy_id"],
+                    "conjecture": conjecture,
                 }
 
             proved_ids.append(policy["policy_id"])
@@ -114,6 +119,7 @@ async def verify(
             "trace": "",
             "latency_us": 0,
             "policy_id": "NONE",
+            "conjecture": "",
         }
 
     return {
@@ -121,6 +127,7 @@ async def verify(
         "trace": "",
         "latency_us": total_latency,
         "policy_id": ", ".join(proved_ids),
+        "conjecture": last_conjecture,
     }
 
 

@@ -136,6 +136,7 @@ async def api_verify(req: ToolCallRequest):
     lean_trace: str = worker_resp.get("trace", "")
     latency_us: int = worker_resp.get("latency_us", 0)
     policy_id: str = worker_resp.get("policy_id", "UNKNOWN")
+    conjecture: str = worker_resp.get("conjecture", "")
 
     # 2. Determine verdict and explanation
     if lean_result == "proved":
@@ -163,6 +164,7 @@ async def api_verify(req: ToolCallRequest):
         lean_trace=lean_trace,
         explanation=explanation,
         latency_us=latency_us,
+        conjecture=conjecture,
     )
     _append_audit(entry)
 
@@ -176,6 +178,7 @@ async def api_verify(req: ToolCallRequest):
         lean_trace=lean_trace,
         latency_us=latency_us,
         policy_id=policy_id,
+        conjecture=conjecture,
     )
 
 

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { verify } from '../api/client'
+import { hljs } from '../lib/lean4-hljs'
 import type { GuardrailResultResponse } from '../types'
 
 // Mirrors backend/app/agents/mock_trading.py _SCENARIOS exactly
@@ -26,10 +27,29 @@ function formatParams(params: Record<string, unknown>): string {
     .join(', ')
 }
 
-function latencyLabel(us: number): string {
-  if (us < 1000) return `${us}µs`
-  if (us < 1_000_000) return `${(us / 1000).toFixed(1)}ms`
-  return `${(us / 1_000_000).toFixed(2)}s`
+/** Returns latency text and CSS class for color coding. */
+function latencyDisplay(us: number): { text: string; cls: string } {
+  const ms = us / 1000
+  if (us < 10_000) return { text: `${ms.toFixed(1)}ms — kernel verified`, cls: 'latency-fast' }
+  if (us >= 100_000) return { text: `${ms.toFixed(0)}ms — cold start`, cls: 'latency-slow' }
+  return { text: `${ms.toFixed(1)}ms`, cls: 'latency-normal' }
+}
+
+/** Syntax-highlights a Lean 4 code block using the registered grammar. */
+function HighlightedCode({ code }: { code: string }) {
+  const ref = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (ref.current && code) {
+      ref.current.removeAttribute('data-highlighted')
+      ref.current.textContent = code
+      hljs.highlightElement(ref.current)
+    }
+  }, [code])
+  return (
+    <pre className="conjecture-pre">
+      <code ref={ref} className="language-lean4" />
+    </pre>
+  )
 }
 
 export function AgentPanel() {
@@ -43,7 +63,6 @@ export function AgentPanel() {
     for (const scenario of SCENARIOS) {
       const id = `${Date.now()}-${Math.random()}`
 
-      // Add a "verifying" card at the top
       setCards((prev) => [{ id, scenario, status: 'verifying' }, ...prev])
 
       try {
@@ -58,7 +77,6 @@ export function AgentPanel() {
         )
       }
 
-      // 1.5s gap between scenarios
       await new Promise((r) => setTimeout(r, 1500))
     }
 
@@ -106,11 +124,13 @@ function AgentCard({ card }: { card: CardState }) {
     <div
       className={`agent-card${verdict === 'allowed' ? ' card-allowed' : verdict === 'blocked' ? ' card-blocked' : ''}`}
     >
+      {/* Header: tool name + params */}
       <div className="agent-card-header">
         <span className="tool-name">{scenario.tool_name}</span>
         <span className="params-text">({formatParams(scenario.params as Record<string, unknown>)})</span>
       </div>
 
+      {/* Verifying state */}
       {status === 'verifying' && (
         <div className="verifying-row">
           <span className="spinner" />
@@ -118,19 +138,34 @@ function AgentCard({ card }: { card: CardState }) {
         </div>
       )}
 
+      {/* Done state */}
       {status === 'done' && result && (
-        <div className="agent-card-result">
-          <div className="result-row">
-            <span className={`verdict-badge verdict-${result.verdict}`}>
-              {result.verdict.toUpperCase()}
-            </span>
-            <span className="latency-label">{latencyLabel(result.latency_us)}</span>
-            <span className="policy-label">{result.policy_id}</span>
-          </div>
-          {result.verdict === 'blocked' && (
-            <div className="explanation-text">{result.explanation}</div>
+        <>
+          {/* Conjecture box — shown when kernel returned a conjecture */}
+          {result.conjecture && (
+            <div className="conjecture-box">
+              <div className="conjecture-label">Lean 4 conjecture</div>
+              <HighlightedCode code={result.conjecture} />
+            </div>
           )}
-        </div>
+
+          {/* Verdict + latency (primary) + policy */}
+          <div className="agent-card-result">
+            <div className="result-row">
+              <span className={`verdict-badge verdict-${result.verdict}`}>
+                {result.verdict.toUpperCase()}
+              </span>
+              {result.latency_us > 0 && (() => {
+                const { text, cls } = latencyDisplay(result.latency_us)
+                return <span className={`latency-primary ${cls}`}>{text}</span>
+              })()}
+              <span className="policy-label">{result.policy_id}</span>
+            </div>
+            {result.verdict === 'blocked' && (
+              <div className="explanation-text">{result.explanation}</div>
+            )}
+          </div>
+        </>
       )}
 
       {status === 'done' && error && (
