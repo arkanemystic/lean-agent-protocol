@@ -35,8 +35,13 @@ from .policy_registry import (
 load_dotenv()
 
 LEAN_WORKER_URL = os.environ.get("LEAN_WORKER_URL", "http://lean-worker:9000")
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
 AUDIT_LOG_PATH = Path(os.environ.get("AUDIT_LOG_PATH", "/app/policy_data/audit.log"))
+
+# FRONTEND_ORIGIN may be a comma-separated list of allowed origins.
+_raw_origins = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
+ALLOWED_ORIGINS: list[str] = [
+    o.strip() for o in _raw_origins.split(",") if o.strip()
+] + ["http://localhost:5173", "http://localhost:3000"]
 
 
 # ---------------------------------------------------------------------------- lifespan
@@ -57,7 +62,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN, "http://localhost:5173", "http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex="https://.*\\.vercel\\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
