@@ -22,6 +22,21 @@ import httpx
 from .policy_registry import get_policies_for_tool
 
 
+async def _fetch_available_modules(client: httpx.AsyncClient, lean_worker_url: str) -> set[str]:
+    """Return the set of module names currently compiled in the lean-worker.
+
+    Returns an empty set on any error so callers fall back to letting the
+    kernel decide (preserving existing behaviour when the endpoint is
+    unreachable).
+    """
+    try:
+        resp = await client.get(f"{lean_worker_url}/modules", timeout=5.0)
+        resp.raise_for_status()
+        return set(resp.json().get("modules", []))
+    except Exception:
+        return set()
+
+
 def _apply_transform(value: Any, transform: str) -> int:
     if transform == "bps":
         return int(float(value) * 10000)
@@ -74,14 +89,27 @@ async def verify(
             "latency_us": 0,
             "policy_id": "NONE",
             "conjecture": "",
+            "explanation": f"No policies registered for tool: {tool_name}",
         }
 
     total_latency: int = 0
     proved_ids: list[str] = []
     last_conjecture: str = ""
+    module_missing_ids: list[str] = []
 
     async with httpx.AsyncClient(timeout=35.0) as client:
+        available_modules = await _fetch_available_modules(client, lean_worker_url)
+
         for policy in policies:
+            lean_module: str = policy["lean_module"]
+
+            # If the worker told us which modules are compiled, verify before
+            # sending — this prevents the ".olean does not exist" error that
+            # occurs when a policy file was written but lake build hasn't run.
+            if available_modules and lean_module not in available_modules:
+                module_missing_ids.append(policy["policy_id"])
+                continue
+
             try:
                 conjecture = build_conjecture_for_policy(policy, params)
             except (KeyError, ValueError):
@@ -108,18 +136,33 @@ async def verify(
                     "latency_us": total_latency,
                     "policy_id": policy["policy_id"],
                     "conjecture": conjecture,
+                    "explanation": "",
                 }
 
             proved_ids.append(policy["policy_id"])
 
     if not proved_ids:
-        # Every applicable policy was skipped (missing params)
+        if module_missing_ids:
+            missing_str = ", ".join(module_missing_ids)
+            return {
+                "result": "skipped",
+                "trace": "",
+                "latency_us": 0,
+                "policy_id": missing_str,
+                "conjecture": "",
+                "explanation": (
+                    f"Policy module not yet compiled into kernel — "
+                    f"please redeploy: {missing_str}"
+                ),
+            }
+        # Every applicable policy was skipped due to missing params
         return {
             "result": "skipped",
             "trace": "",
             "latency_us": 0,
             "policy_id": "NONE",
             "conjecture": "",
+            "explanation": f"No applicable policy parameters found for tool: {tool_name}",
         }
 
     return {
@@ -128,6 +171,7 @@ async def verify(
         "latency_us": total_latency,
         "policy_id": ", ".join(proved_ids),
         "conjecture": last_conjecture,
+        "explanation": "",
     }
 
 

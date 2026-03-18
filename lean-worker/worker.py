@@ -4,8 +4,9 @@ lean-worker: HTTP server wrapping the Lean 4 kernel.
 
 Endpoints:
   GET  /health           → {"status": "ok", "policies_loaded": N}
+  GET  /modules          → {"modules": ["PolicyEnv.Basic", ...]}
   POST /verify           → {"result": "proved"|"refuted"|"error", "trace": "...", "latency_us": N}
-  POST /compile-policy   → {"success": true|false, "error": "..."}
+  POST /compile-policy   → {"success": true|false, "error": "...", "module_name": "..."}
 """
 
 import json
@@ -16,8 +17,9 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-POLICY_ENV_DIR = Path("/app/PolicyEnv")
+POLICY_ENV_DIR  = Path("/app/PolicyEnv")
 POLICY_LEAN_DIR = POLICY_ENV_DIR / "PolicyEnv"
+ROOT_MODULE_FILE = POLICY_ENV_DIR / "PolicyEnv.lean"
 ELAN_BIN = "/root/.elan/bin"
 
 # Augment PATH so subprocess can find lake/lean
@@ -32,6 +34,23 @@ def count_policies() -> int:
         f for f in POLICY_LEAN_DIR.glob("*.lean")
         if f.name != "Basic.lean"
     ])
+
+
+def get_imported_modules() -> list[str]:
+    """
+    Parse PolicyEnv.lean and return all 'import X' module names.
+    e.g. ["PolicyEnv.Basic", "PolicyEnv.CAP001", ...]
+    """
+    if not ROOT_MODULE_FILE.exists():
+        return []
+    modules = []
+    for line in ROOT_MODULE_FILE.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("import "):
+            module = stripped[len("import "):].strip()
+            if module:
+                modules.append(module)
+    return modules
 
 
 def run_lean(conjecture: str) -> tuple[str, str, int]:
@@ -121,6 +140,8 @@ class WorkerHandler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "policies_loaded": count_policies(),
             })
+        elif self.path == "/modules":
+            self.send_json(200, {"modules": get_imported_modules()})
         else:
             self.send_json(404, {"error": "not found"})
 
@@ -173,18 +194,41 @@ class WorkerHandler(BaseHTTPRequestHandler):
 
         # Sanitise policy_id to a safe filename (strip hyphens/spaces)
         safe_id = "".join(c for c in policy_id if c.isalnum() or c == "_")
+        full_module_name = f"PolicyEnv.{safe_id}"
         policy_file = POLICY_LEAN_DIR / f"{safe_id}.lean"
 
+        # ── Snapshot previous state for atomic rollback ──────────────────────
+        prev_policy_exists  = policy_file.exists()
+        prev_policy_content = policy_file.read_text() if prev_policy_exists else None
+        prev_root_content   = ROOT_MODULE_FILE.read_text() if ROOT_MODULE_FILE.exists() else ""
+
+        # ── Write new policy file ────────────────────────────────────────────
         policy_file.write_text(lean_code)
 
+        # ── Add import to root module file if not already present ────────────
+        import_line = f"import {full_module_name}"
+        if import_line not in prev_root_content:
+            new_root = prev_root_content.rstrip("\n") + f"\n{import_line}\n"
+            ROOT_MODULE_FILE.write_text(new_root)
+
+        # ── Build ────────────────────────────────────────────────────────────
         success, output = lake_build()
+
         if success:
-            self.send_json(200, {"success": True, "error": None})
+            self.send_json(200, {
+                "success": True,
+                "error": None,
+                "module_name": safe_id,
+            })
         else:
-            # Roll back the bad file so the project remains buildable
-            policy_file.unlink(missing_ok=True)
+            # ── Rollback both files, restore clean build state ───────────────
+            if prev_policy_content is not None:
+                policy_file.write_text(prev_policy_content)
+            else:
+                policy_file.unlink(missing_ok=True)
+            ROOT_MODULE_FILE.write_text(prev_root_content)
             lake_build()  # rebuild to restore clean state
-            self.send_json(200, {"success": False, "error": output})
+            self.send_json(200, {"success": False, "error": output, "module_name": None})
 
 
 # ---------------------------------------------------------------------------- main

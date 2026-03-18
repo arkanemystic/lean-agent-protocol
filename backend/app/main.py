@@ -178,14 +178,21 @@ def _append_audit(entry: AuditEntry) -> None:
         fh.write(entry.model_dump_json() + "\n")
 
 
-def _infer_policy_metadata(policy_id: str, lean_code: str, description: str = "") -> dict[str, Any]:
+def _infer_policy_metadata(
+    policy_id: str,
+    lean_code: str,
+    description: str = "",
+    module_name: str | None = None,
+) -> dict[str, Any]:
     """
     Build a PolicyMetadata dict from compiled Lean code using heuristics.
     Extracts the function name from the first theorem/def/axiom.
     Uses conservative defaults for everything else.
+
+    module_name: the safe_id returned by the lean-worker (e.g. "CAP002").
+    Falls back to re-deriving it from policy_id if not supplied.
     """
-    # Same sanitisation the lean-worker uses to derive the file name.
-    safe_id = "".join(c for c in policy_id if c.isalnum() or c == "_")
+    safe_id = module_name or "".join(c for c in policy_id if c.isalnum() or c == "_")
 
     # Extract the first theorem/def/axiom name from the Lean source.
     m = re.search(r"(?:theorem|def|axiom)\s+(\w+)", lean_code)
@@ -227,7 +234,10 @@ async def _run_one_scenario(scenario: dict[str, Any]) -> None:
             explanation = back_translator.translate(lean_trace, scenario["params"], policy_id)
         elif lean_result == "skipped":
             verdict = "skipped"
-            explanation = f"No policies registered for tool: {scenario['tool_name']}"
+            explanation = (
+                worker_resp.get("explanation")
+                or f"No policies registered for tool: {scenario['tool_name']}"
+            )
         else:
             verdict = "blocked"
             explanation = f"Lean kernel error during verification: {lean_trace[:200]}"
@@ -300,7 +310,10 @@ async def api_verify(req: ToolCallRequest):
         explanation = back_translator.translate(lean_trace, req.params, policy_id)
     elif lean_result == "skipped":
         verdict = "skipped"
-        explanation = f"No policies registered for tool: {req.tool_name}"
+        explanation = (
+            worker_resp.get("explanation")
+            or f"No policies registered for tool: {req.tool_name}"
+        )
     else:
         verdict = "blocked"
         explanation = f"Lean kernel error during verification: {lean_trace[:200]}"
@@ -352,7 +365,10 @@ async def api_compile_policy(req: CompilePolicyRequest):
     if result["success"] and req.policy_id not in _DEFAULT_POLICY_IDS:
         # Auto-register the newly compiled policy.
         try:
-            meta = _infer_policy_metadata(req.policy_id, req.lean_code, req.description)
+            meta = _infer_policy_metadata(
+                req.policy_id, req.lean_code, req.description,
+                module_name=result.get("module_name"),
+            )
             register_policy(meta)
             registered = True
             log_event("info", f"Policy {req.policy_id} registered in registry")
