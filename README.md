@@ -11,6 +11,11 @@ Formal verification means the system doesn't *estimate* whether a rule was follo
 The demo runs three pre-compiled policies (capital threshold, price deviation, position limit) against a mock trading agent cycling through six scenarios. Three pass, three fail — and every decision is logged to an immutable audit trail with a plain-language explanation of exactly why a blocked trade was blocked.
 
 ---
+## Reference Paper
+
+This project is based on the following foundational research paper:
+[Original Research Paper](https://drive.google.com/file/d/1QpcXIZrWuyNA1PjlrcSC-gy3wWccYEMx/view?usp=sharing)
+---
 
 ## Live Demo
 
@@ -85,12 +90,12 @@ Open **https://YOURAPP.vercel.app** and follow these steps:
 1. Click any **BLOCKED** entry in the audit log
 2. Click **"▼ Show Lean trace"** at the bottom of the card
 3. The raw Lean 4 kernel output appears — e.g.:
-   ```
-   Tactic `decide` proved that the proposition
-     PolicyEnv.cap001Compliant 50000 400000 = true
-   is false
-   ```
-   This is the formal proof that the trade violated the policy.
+    ```
+    Tactic `decide` proved that the proposition
+      PolicyEnv.cap001Compliant 50000 400000 = true
+    is false
+    ```
+    This is the formal proof that the trade violated the policy.
 
 ### Step 6 — Export the Audit Log
 1. Click **"Export JSONL"** in the audit log header
@@ -171,9 +176,9 @@ API_BASE=https://api.devrashie.space ./smoke-test.sh
 1. Import the repo into Vercel
 2. Set root directory to `frontend`
 3. Add environment variable:
-   ```
-   VITE_API_URL=https://api.devrashie.space
-   ```
+    ```
+    VITE_API_URL=https://api.devrashie.space
+    ```
 4. Deploy — Vercel auto-detects Vite and runs `npm run build`
 
 The `vercel.json` SPA rewrite rule handles client-side routing.
