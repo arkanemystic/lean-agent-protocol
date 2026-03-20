@@ -178,6 +178,36 @@ def _append_audit(entry: AuditEntry) -> None:
         fh.write(entry.model_dump_json() + "\n")
 
 
+def _short_display_name(statement: str, cap: int = 40) -> str:
+    """
+    Derive a short title from a natural-language policy statement.
+
+    Takes the first 5 words, strips leading stop-words (any/a/the/all/no),
+    then title-cases the result and truncates to `cap` characters with "…".
+    """
+    words = statement.strip().split()
+    # Drop a leading article/quantifier so "Any strategy must…" → "Strategy Must…"
+    _LEADING_STOP = {"any", "a", "an", "the", "all", "no", "each", "every"}
+    if words and words[0].lower() in _LEADING_STOP:
+        words = words[1:]
+    title_words = words[:5]
+    title = " ".join(title_words).rstrip(".,;:").title()
+    if len(title) > cap:
+        title = title[: cap - 1].rstrip() + "…"
+    return title or statement[:cap]
+
+
+def _next_custom_policy_id() -> str:
+    """Return the next available CUSTOM-NNN id by inspecting the live registry."""
+    registry = load_registry()
+    nums = []
+    for k in registry.keys():
+        m = re.match(r"CUSTOM-(\d+)$", k)
+        if m:
+            nums.append(int(m.group(1)))
+    return f"CUSTOM-{(max(nums, default=0) + 1):03d}"
+
+
 def _infer_policy_metadata(
     policy_id: str,
     lean_code: str,
@@ -198,9 +228,11 @@ def _infer_policy_metadata(
     m = re.search(r"(?:theorem|def|axiom)\s+(\w+)", lean_code)
     lean_function = m.group(1) if m else "customPolicy"
 
+    display_name = _short_display_name(description) if description else policy_id
+
     return {
         "policy_id": policy_id,
-        "display_name": description or policy_id,
+        "display_name": display_name,
         "lean_module": f"PolicyEnv.{safe_id}",
         "lean_function": lean_function,
         "applies_to_tools": ["place_order", "rebalance_portfolio"],
@@ -347,10 +379,16 @@ async def api_verify(req: ToolCallRequest):
 
 @app.post("/api/compile-policy", response_model=CompilePolicyResponse)
 async def api_compile_policy(req: CompilePolicyRequest):
-    log_event("info", f"Compiling policy {req.policy_id}…")
+    # Normalise timestamp-style CUSTOM ids (e.g. "CUSTOM-1773854413427") to
+    # sequential ones (CUSTOM-001, CUSTOM-002 …) before touching the registry.
+    policy_id = req.policy_id
+    if re.match(r"CUSTOM-\d{5,}$", policy_id):
+        policy_id = _next_custom_policy_id()
+
+    log_event("info", f"Compiling policy {policy_id}…")
     result = await orchestrator.compile_policy(
         lean_code=req.lean_code,
-        policy_id=req.policy_id,
+        policy_id=policy_id,
         lean_worker_url=LEAN_WORKER_URL,
     )
 
@@ -358,23 +396,23 @@ async def api_compile_policy(req: CompilePolicyRequest):
     scenarios_rerun = False
 
     if result["success"]:
-        log_event("success", f"Policy {req.policy_id} compiled successfully")
+        log_event("success", f"Policy {policy_id} compiled successfully")
     else:
-        log_event("error", f"Policy {req.policy_id} compilation failed: {result.get('error', '?')}")
+        log_event("error", f"Policy {policy_id} compilation failed: {result.get('error', '?')}")
 
-    if result["success"] and req.policy_id not in _DEFAULT_POLICY_IDS:
+    if result["success"] and policy_id not in _DEFAULT_POLICY_IDS:
         # Auto-register the newly compiled policy.
         try:
             meta = _infer_policy_metadata(
-                req.policy_id, req.lean_code, req.description,
+                policy_id, req.lean_code, req.description,
                 module_name=result.get("module_name"),
             )
             register_policy(meta)
             registered = True
-            log_event("info", f"Policy {req.policy_id} registered in registry")
+            log_event("info", f"Policy {policy_id} registered in registry")
         except Exception as exc:
-            log_event("warn", f"Auto-registration failed for {req.policy_id}: {exc}")
-            print(f"Auto-registration failed for {req.policy_id}: {exc}", flush=True)
+            log_event("warn", f"Auto-registration failed for {policy_id}: {exc}")
+            print(f"Auto-registration failed for {policy_id}: {exc}", flush=True)
 
         # Fire mock scenarios in the background so the audit log populates via WebSocket.
         log_event("info", "Re-running mock scenarios against updated policy set…")
@@ -384,7 +422,7 @@ async def api_compile_policy(req: CompilePolicyRequest):
     return CompilePolicyResponse(
         success=result["success"],
         error=result.get("error"),
-        policy_id=req.policy_id,
+        policy_id=policy_id,
         needs_registration=result["success"],
         registered=registered,
         scenarios_rerun=scenarios_rerun,
