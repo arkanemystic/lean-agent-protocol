@@ -17,7 +17,7 @@ export function useAuditStream() {
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return
-    const url = getWsUrl()
+    const url = getWsUrl('/ws/audit')
     setStatus('connecting')
 
     const ws = new WebSocket(url)

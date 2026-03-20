@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { getSseUrl } from '../api/client'
 
 interface LogEntry {
   ts: string
@@ -6,7 +7,6 @@ interface LogEntry {
   msg: string
 }
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 const SSE_BACKOFF_INITIAL = 3_000
 const SSE_BACKOFF_MAX     = 30_000
 
@@ -21,7 +21,7 @@ export function LogStream() {
   function connect() {
     if (esRef.current) esRef.current.close()
 
-    const url = `${API_BASE}/api/logs/stream`
+    const url = getSseUrl('/api/logs/stream')
     const es = new EventSource(url)
     esRef.current = es
 

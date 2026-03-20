@@ -19,6 +19,15 @@ const API_BASE =
     ? `${import.meta.env.VITE_API_URL}`
     : ''
 
+// VITE_WS_URL is the base for WebSocket and SSE connections.
+// In production this points to the backend's direct port (bypassing Traefik)
+// so that WebSocket upgrades and SSE streams are not broken by proxy buffering.
+// Falls back to VITE_API_URL when not set (dev / same-origin proxying).
+const WS_BASE: string =
+  (import.meta.env.VITE_WS_URL as string | undefined) ??
+  (import.meta.env.VITE_API_URL as string | undefined) ??
+  ''
+
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
@@ -84,12 +93,26 @@ export function getAuditLog(): Promise<AuditEntry[]> {
   return get('/api/audit')
 }
 
-/** Derive WebSocket URL from VITE_API_URL. */
-export function getWsUrl(): string {
-  const apiUrl = import.meta.env.VITE_API_URL as string | undefined
-  if (apiUrl) {
-    return apiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws') + '/ws/audit'
+/**
+ * Build a WebSocket URL (ws:// or wss://) from WS_BASE + path.
+ * WS_BASE is VITE_WS_URL when set (direct port, bypasses Traefik),
+ * otherwise VITE_API_URL, otherwise same-origin.
+ */
+export function getWsUrl(path: string): string {
+  if (WS_BASE) {
+    return WS_BASE.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws') + path
   }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${location.host}/ws/audit`
+  return `${proto}://${location.host}${path}`
+}
+
+/**
+ * Build an SSE URL (http:// or https://) from WS_BASE + path.
+ * Keeps the http/https scheme — EventSource uses fetch, not WebSocket.
+ */
+export function getSseUrl(path: string): string {
+  if (WS_BASE) {
+    return WS_BASE + path
+  }
+  return `${location.protocol}//${location.host}${path}`
 }
