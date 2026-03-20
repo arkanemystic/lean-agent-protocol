@@ -7,6 +7,8 @@ interface LogEntry {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const SSE_BACKOFF_INITIAL = 3_000
+const SSE_BACKOFF_MAX     = 30_000
 
 export function LogStream() {
   const [entries, setEntries] = useState<LogEntry[]>([])
@@ -14,6 +16,7 @@ export function LogStream() {
   const bodyRef = useRef<HTMLDivElement>(null)
   const esRef = useRef<EventSource | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const retryDelay = useRef(SSE_BACKOFF_INITIAL)
 
   function connect() {
     if (esRef.current) esRef.current.close()
@@ -22,7 +25,10 @@ export function LogStream() {
     const es = new EventSource(url)
     esRef.current = es
 
-    es.onopen = () => setConnected(true)
+    es.onopen = () => {
+      retryDelay.current = SSE_BACKOFF_INITIAL  // reset backoff on success
+      setConnected(true)
+    }
 
     es.onmessage = (e) => {
       try {
@@ -41,7 +47,9 @@ export function LogStream() {
       setConnected(false)
       es.close()
       esRef.current = null
-      reconnectTimer.current = setTimeout(connect, 3000)
+      const delay = retryDelay.current
+      retryDelay.current = Math.min(delay * 2, SSE_BACKOFF_MAX)
+      reconnectTimer.current = setTimeout(connect, delay)
     }
   }
 

@@ -4,12 +4,16 @@ import type { AuditEntry } from '../types'
 
 export type WsStatus = 'connecting' | 'connected' | 'disconnected'
 
+const WS_BACKOFF_INITIAL = 3_000
+const WS_BACKOFF_MAX    = 30_000
+
 export function useAuditStream() {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [status, setStatus] = useState<WsStatus>('connecting')
   const wsRef = useRef<WebSocket | null>(null)
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  const retryDelayRef = useRef(WS_BACKOFF_INITIAL)
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return
@@ -21,6 +25,7 @@ export function useAuditStream() {
 
     ws.onopen = () => {
       if (!mountedRef.current) return
+      retryDelayRef.current = WS_BACKOFF_INITIAL  // reset backoff on success
       setStatus('connected')
     }
 
@@ -37,8 +42,9 @@ export function useAuditStream() {
     ws.onclose = () => {
       if (!mountedRef.current) return
       setStatus('disconnected')
-      // Reconnect after 3 seconds
-      retryRef.current = setTimeout(connect, 3000)
+      const delay = retryDelayRef.current
+      retryDelayRef.current = Math.min(delay * 2, WS_BACKOFF_MAX)
+      retryRef.current = setTimeout(connect, delay)
     }
 
     ws.onerror = () => {

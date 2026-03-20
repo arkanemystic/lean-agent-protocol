@@ -23,7 +23,7 @@ services:
       - "traefik.http.routers.lean-backend.entrypoints=https"
       - "traefik.http.routers.lean-backend.tls=true"
       - "traefik.http.routers.lean-backend.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.lean-backend.middlewares=lean-timeout,lean-ws"
+      - "traefik.http.routers.lean-backend.middlewares=lean-timeout,lean-ws,lean-nohttp3"
       - "traefik.http.routers.lean-backend.service=lean-backend"
       - "traefik.http.services.lean-backend.loadbalancer.server.port=8000"
       - "traefik.http.services.lean-backend.loadbalancer.responseforwarding.flushinterval=-1"
@@ -32,6 +32,8 @@ services:
       - "traefik.http.middlewares.lean-timeout.buffering.retryExpression="
       # ── WebSocket / SSE header middleware ────────────────────────────────────
       - "traefik.http.middlewares.lean-ws.headers.customrequestheaders.X-Forwarded-Proto=https"
+      # ── Strip alt-svc to prevent HTTP/3 (QUIC) upgrades that break WS/SSE ──
+      - "traefik.http.middlewares.lean-nohttp3.headers.customresponseheaders.alt-svc=clear"
       # ── SSE router (/api/logs) — separate service with 1ms flush ───────────
       - "traefik.http.routers.lean-logs.rule=Host(`api.devrashie.space`) && PathPrefix(`/api/logs`)"
       - "traefik.http.routers.lean-logs.entrypoints=https"
