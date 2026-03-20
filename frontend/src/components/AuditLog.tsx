@@ -93,6 +93,22 @@ function TraceBreakdown({ entry }: { entry: AuditEntry }) {
                   : 'skipped'}
             </span>
           </div>
+          {entry.latency_us > 0 && (
+            <div className="breakdown-row">
+              <span className="breakdown-key">wall-clock</span>
+              <span className="breakdown-val mono">
+                {latencyLabel(entry.latency_us)} (subprocess + elaboration + I/O)
+              </span>
+            </div>
+          )}
+          {entry.elab_us != null && (
+            <div className="breakdown-row">
+              <span className="breakdown-key">elaboration</span>
+              <span className="breakdown-val mono latency-elab">
+                {(entry.elab_us / 1000).toFixed(2)}ms (pure Lean kernel)
+              </span>
+            </div>
+          )}
         </div>
       ) : (
         <div className="breakdown-unparsed mono">{entry.lean_trace || entry.conjecture}</div>
@@ -134,12 +150,17 @@ function AuditCard({ entry }: { entry: AuditEntry }) {
         <span className="params-text">{formatParams(entry.params)}</span>
       </div>
 
-      {/* Bottom row: policy + latency (primary) + explanation */}
+      {/* Bottom row: policy + latency (primary) + elab + explanation */}
       <div className="audit-bottom">
         <span className="policy-label">{entry.policy_id}</span>
         {entry.latency_us > 0 && (
           <span className={`latency-primary ${entry.latency_us < 10_000 ? 'latency-fast' : entry.latency_us >= 100_000 ? 'latency-slow' : 'latency-normal'}`}>
             {latencyLabel(entry.latency_us)}
+          </span>
+        )}
+        {entry.elab_us != null && (
+          <span className="latency-elab">
+            {(entry.elab_us / 1000).toFixed(2)}ms kernel
           </span>
         )}
         <span className="audit-explanation">{entry.explanation}</span>
@@ -182,10 +203,16 @@ export function AuditLog({ entries, wsStatus }: Props) {
 
   const connected = wsStatus === 'connected'
 
-  // Average latency over entries with non-zero latency
+  // Average wall-clock latency over entries with non-zero latency
   const latencyEntries = entries.filter((e) => e.latency_us > 0)
   const avgLatencyMs = latencyEntries.length > 0
     ? latencyEntries.reduce((s, e) => s + e.latency_us, 0) / latencyEntries.length / 1000
+    : null
+
+  // Average elaboration time over entries that have elab_us
+  const elabEntries = entries.filter((e) => e.elab_us != null)
+  const avgElabMs = elabEntries.length > 0
+    ? elabEntries.reduce((s, e) => s + (e.elab_us ?? 0), 0) / elabEntries.length / 1000
     : null
 
   return (
@@ -202,7 +229,11 @@ export function AuditLog({ entries, wsStatus }: Props) {
           )}
           {avgLatencyMs !== null && (
             <span className="audit-avg-latency">
-              <span className="audit-lambda">λ</span> avg kernel latency: {avgLatencyMs.toFixed(1)}ms
+              <span className="audit-lambda">λ</span>{' '}
+              {avgElabMs !== null
+                ? <>avg kernel: <span className="latency-elab">{avgElabMs.toFixed(2)}ms</span> · wall: {avgLatencyMs.toFixed(1)}ms</>
+                : <>avg kernel latency: {avgLatencyMs.toFixed(1)}ms</>
+              }
             </span>
           )}
         </div>

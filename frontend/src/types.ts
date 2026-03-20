@@ -15,6 +15,7 @@ export interface GuardrailResultResponse {
   latency_us: number
   policy_id: string
   conjecture: string
+  elab_us?: number | null
 }
 
 export interface CompilePolicyRequest {
@@ -44,6 +45,7 @@ export interface AuditEntry {
   explanation: string
   latency_us: number
   conjecture: string
+  elab_us?: number | null
 }
 
 export interface HealthResponse {

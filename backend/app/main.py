@@ -257,6 +257,7 @@ async def _run_one_scenario(scenario: dict[str, Any]) -> None:
         latency_us: int = worker_resp.get("latency_us", 0)
         policy_id: str = worker_resp.get("policy_id", "UNKNOWN")
         conjecture: str = worker_resp.get("conjecture", "")
+        elab_us: int | None = worker_resp.get("elab_us")
 
         if lean_result == "proved":
             verdict = "allowed"
@@ -286,6 +287,7 @@ async def _run_one_scenario(scenario: dict[str, Any]) -> None:
             explanation=explanation,
             latency_us=latency_us,
             conjecture=conjecture,
+            elab_us=elab_us,
         )
         _append_audit(entry)
         await broadcaster.publish(entry.model_dump())
@@ -333,6 +335,7 @@ async def api_verify(req: ToolCallRequest):
     latency_us: int = worker_resp.get("latency_us", 0)
     policy_id: str = worker_resp.get("policy_id", "UNKNOWN")
     conjecture: str = worker_resp.get("conjecture", "")
+    elab_us: int | None = worker_resp.get("elab_us")
 
     if lean_result == "proved":
         verdict = "allowed"
@@ -362,6 +365,7 @@ async def api_verify(req: ToolCallRequest):
         explanation=explanation,
         latency_us=latency_us,
         conjecture=conjecture,
+        elab_us=elab_us,
     )
     _append_audit(entry)
     asyncio.create_task(broadcaster.publish(entry.model_dump()))
@@ -374,6 +378,7 @@ async def api_verify(req: ToolCallRequest):
         latency_us=latency_us,
         policy_id=policy_id,
         conjecture=conjecture,
+        elab_us=elab_us,
     )
 
 

@@ -28,8 +28,12 @@ function formatParams(params: Record<string, unknown>): string {
 }
 
 /** Returns latency text and CSS class for color coding. */
-export function latencyDisplay(us: number): { text: string; cls: string } {
+export function latencyDisplay(us: number, elabUs?: number | null): { text: string; cls: string } {
   const ms = us / 1000
+  const cls = us < 10_000 ? 'latency-fast' : us >= 100_000 ? 'latency-slow' : 'latency-normal'
+  if (elabUs != null) {
+    return { text: `${ms.toFixed(1)}ms total · ${(elabUs / 1000).toFixed(2)}ms kernel`, cls }
+  }
   if (us < 10_000) return { text: `${ms.toFixed(1)}ms — kernel verified`, cls: 'latency-fast' }
   if (us >= 100_000) return { text: `${ms.toFixed(0)}ms — cold start`, cls: 'latency-slow' }
   return { text: `${ms.toFixed(1)}ms`, cls: 'latency-normal' }
@@ -68,7 +72,7 @@ export function VerdictCard({ result }: { result: GuardrailResultResponse }) {
             {result.verdict.toUpperCase()}
           </span>
           {result.latency_us > 0 && (() => {
-            const { text, cls } = latencyDisplay(result.latency_us)
+            const { text, cls } = latencyDisplay(result.latency_us, result.elab_us)
             return <span className={`latency-primary ${cls}`}>{text}</span>
           })()}
           <span className="policy-label">{result.policy_id}</span>

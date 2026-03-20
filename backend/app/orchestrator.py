@@ -90,9 +90,12 @@ async def verify(
             "policy_id": "NONE",
             "conjecture": "",
             "explanation": f"No policies registered for tool: {tool_name}",
+            "elab_us": None,
         }
 
     total_latency: int = 0
+    total_elab: int = 0
+    elab_missing: bool = False
     proved_ids: list[str] = []
     last_conjecture: str = ""
     module_missing_ids: list[str] = []
@@ -126,6 +129,12 @@ async def verify(
             worker_resp = resp.json()
 
             total_latency += worker_resp.get("latency_us", 0)
+            elab = worker_resp.get("elab_us")
+            if elab is not None:
+                total_elab += elab
+            else:
+                elab_missing = True
+
             lean_result: str = worker_resp["result"]
 
             if lean_result in ("refuted", "error"):
@@ -137,6 +146,7 @@ async def verify(
                     "policy_id": policy["policy_id"],
                     "conjecture": conjecture,
                     "explanation": "",
+                    "elab_us": elab,
                 }
 
             proved_ids.append(policy["policy_id"])
@@ -154,6 +164,7 @@ async def verify(
                     f"Policy module not yet compiled into kernel — "
                     f"please redeploy: {missing_str}"
                 ),
+                "elab_us": None,
             }
         # Every applicable policy was skipped due to missing params
         return {
@@ -163,6 +174,7 @@ async def verify(
             "policy_id": "NONE",
             "conjecture": "",
             "explanation": f"No applicable policy parameters found for tool: {tool_name}",
+            "elab_us": None,
         }
 
     return {
@@ -172,6 +184,7 @@ async def verify(
         "policy_id": ", ".join(proved_ids),
         "conjecture": last_conjecture,
         "explanation": "",
+        "elab_us": total_elab if not elab_missing else None,
     }
 
 

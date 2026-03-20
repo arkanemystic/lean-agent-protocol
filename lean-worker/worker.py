@@ -11,6 +11,7 @@ Endpoints:
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -53,15 +54,46 @@ def get_imported_modules() -> list[str]:
     return modules
 
 
-def run_lean(conjecture: str) -> tuple[str, str, int]:
+def _parse_elab_us(trace: str) -> int | None:
+    """
+    Extract the pure Lean elaboration time from profiler output.
+
+    Lean emits lines like:
+        [Elab.command] 1.23ms
+        [Elab.command] 456µs
+        [Elab.command] 0.001s
+
+    We take the LAST match — it corresponds to the top-level example/theorem;
+    earlier matches are nested elaboration steps.
+    Returns None when no profiler line is present.
+    """
+    matches = re.findall(r'\[Elab\.command\]\s+([\d.]+)(ms|µs|s)\b', trace)
+    if not matches:
+        return None
+    val_str, unit = matches[-1]
+    val = float(val_str)
+    if unit == 'ms':
+        return int(val * 1000)
+    if unit == 'µs':
+        return int(val)
+    return int(val * 1_000_000)  # unit == 's'
+
+
+def run_lean(conjecture: str) -> tuple[str, str, int, int | None]:
     """
     Write conjecture to a temp file, elaborate it with `lake env lean`.
-    Returns (result, trace, latency_us) where result ∈ {"proved","refuted","error"}.
+    Returns (result, trace, latency_us, elab_us) where:
+      result   ∈ {"proved","refuted","error"}
+      elab_us  is the pure kernel elaboration time parsed from profiler output,
+               or None when the profiler line is absent.
     """
+    # Prepend profiler options so Lean emits [Elab.command] timing for every
+    # command regardless of duration (threshold 0 suppresses the default filter).
+    profiler_header = "set_option profiler true\nset_option profiler.threshold 0\n"
     start_ns = time.monotonic_ns()
     tmp = tempfile.NamedTemporaryFile(suffix=".lean", dir="/tmp", mode="w", delete=False)
     try:
-        tmp.write(conjecture)
+        tmp.write(profiler_header + conjecture)
         tmp.flush()
         tmp.close()
 
@@ -76,8 +108,10 @@ def run_lean(conjecture: str) -> tuple[str, str, int]:
         latency_us = (time.monotonic_ns() - start_ns) // 1000
         trace = (proc.stdout + proc.stderr).strip()
 
+        elab_us = _parse_elab_us(trace)
+
         if proc.returncode == 0:
-            return "proved", trace, latency_us
+            return "proved", trace, latency_us, elab_us
 
         # Distinguish refuted (false proposition) from syntax/import errors.
         # Lean 4's `decide` emits "proved that the proposition … is false"
@@ -90,9 +124,9 @@ def run_lean(conjecture: str) -> tuple[str, str, int]:
             "application type mismatch",
         ]
         if any(m in trace for m in refuted_markers):
-            return "refuted", trace, latency_us
+            return "refuted", trace, latency_us, elab_us
 
-        return "error", trace, latency_us
+        return "error", trace, latency_us, elab_us
 
     finally:
         os.unlink(tmp.name)
@@ -161,12 +195,13 @@ class WorkerHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            result, trace, latency_us = run_lean(conjecture)
+            result, trace, latency_us, elab_us = run_lean(conjecture)
         except subprocess.TimeoutExpired:
             self.send_json(200, {
                 "result": "error",
                 "trace": "lean timed out after 30s",
                 "latency_us": 30_000_000,
+                "elab_us": None,
             })
             return
         except Exception as exc:
@@ -174,6 +209,7 @@ class WorkerHandler(BaseHTTPRequestHandler):
                 "result": "error",
                 "trace": str(exc),
                 "latency_us": 0,
+                "elab_us": None,
             })
             return
 
@@ -181,6 +217,7 @@ class WorkerHandler(BaseHTTPRequestHandler):
             "result": result,
             "trace": trace,
             "latency_us": latency_us,
+            "elab_us": elab_us,
         })
 
     def _handle_compile_policy(self) -> None:
@@ -233,8 +270,17 @@ class WorkerHandler(BaseHTTPRequestHandler):
 
 # ---------------------------------------------------------------------------- main
 
+def _warmup():
+    try:
+        run_lean("import PolicyEnv.Basic\n#check PolicyEnv.tradeWithinCapital")
+        print("lean-worker: warmup complete", flush=True)
+    except Exception as e:
+        print(f"lean-worker: warmup failed: {e}", flush=True)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 9000))
     server = HTTPServer(("0.0.0.0", port), WorkerHandler)
     print(f"lean-worker listening on :{port}", flush=True)
+    _warmup()
     server.serve_forever()

@@ -946,6 +946,7 @@ html, body, #root {
 .latency-fast   { color: var(--blue); }
 .latency-normal { color: var(--text-muted); }
 .latency-slow   { color: var(--amber); }
+.latency-elab   { color: var(--green); }
 
 /* ─── Audit header avg latency ───────────────────────────────── */
 .audit-avg-latency {

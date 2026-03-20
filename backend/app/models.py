@@ -18,6 +18,7 @@ class GuardrailResultResponse(BaseModel):
     latency_us: int
     policy_id: str
     conjecture: str = ""    # exact Lean 4 string submitted to the kernel
+    elab_us: int | None = None  # pure Lean elaboration time (from profiler)
 
 
 class CompilePolicyRequest(BaseModel):
@@ -47,6 +48,7 @@ class AuditEntry(BaseModel):
     explanation: str
     latency_us: int
     conjecture: str = ""    # exact Lean 4 string submitted to the kernel
+    elab_us: int | None = None  # pure Lean elaboration time (from profiler)
 
 
 # ── Policy registry schemas ──────────────────────────────────────────────────
