@@ -26,6 +26,8 @@ ELAN_BIN = "/root/.elan/bin"
 # Augment PATH so subprocess can find lake/lean
 _env = {**os.environ, "PATH": f"{ELAN_BIN}:{os.environ.get('PATH', '')}"}
 
+PROFILER_OPTIONS = "set_option profiler true\nset_option profiler.threshold 0\n"
+
 
 def count_policies() -> int:
     """Count compiled policy modules (excludes Basic.lean, the core lib)."""
@@ -52,6 +54,33 @@ def get_imported_modules() -> list[str]:
             if module:
                 modules.append(module)
     return modules
+
+
+def _inject_profiler(conjecture: str) -> str:
+    """
+    Insert profiler set_option lines AFTER all import statements.
+
+    Lean 4 requires `import` to be the very first commands in a file —
+    no `set_option` may precede them.
+    """
+    lines = conjecture.split("\n")
+    last_import_idx = -1
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("import "):
+            last_import_idx = i
+        elif stripped and not stripped.startswith("--") and not stripped.startswith("/-"):
+            # First non-import, non-comment, non-blank line — stop scanning
+            break
+
+    if last_import_idx >= 0:
+        # Insert profiler options right after the last import line
+        before = lines[: last_import_idx + 1]
+        after = lines[last_import_idx + 1 :]
+        return "\n".join(before) + "\n" + PROFILER_OPTIONS + "\n".join(after)
+    else:
+        # No imports found — safe to prepend
+        return PROFILER_OPTIONS + conjecture
 
 
 def _parse_elab_us(trace: str) -> int | None:
@@ -87,13 +116,11 @@ def run_lean(conjecture: str) -> tuple[str, str, int, int | None]:
       elab_us  is the pure kernel elaboration time parsed from profiler output,
                or None when the profiler line is absent.
     """
-    # Prepend profiler options so Lean emits [Elab.command] timing for every
-    # command regardless of duration (threshold 0 suppresses the default filter).
-    profiler_header = "set_option profiler true\nset_option profiler.threshold 0\n"
+    instrumented = _inject_profiler(conjecture)
     start_ns = time.monotonic_ns()
     tmp = tempfile.NamedTemporaryFile(suffix=".lean", dir="/tmp", mode="w", delete=False)
     try:
-        tmp.write(profiler_header + conjecture)
+        tmp.write(instrumented)
         tmp.flush()
         tmp.close()
 
