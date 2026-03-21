@@ -48,7 +48,13 @@ AUDIT_LOG_PATH = Path(os.environ.get("AUDIT_LOG_PATH", "/app/policy_data/audit.l
 _raw_origins = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
 ALLOWED_ORIGINS: list[str] = [
     o.strip() for o in _raw_origins.split(",") if o.strip()
-] + ["http://localhost:5173", "http://localhost:3000"]
+]
+# Always include local dev origins
+for _dev_origin in ["http://localhost:5173", "http://localhost:3000"]:
+    if _dev_origin not in ALLOWED_ORIGINS:
+        ALLOWED_ORIGINS.append(_dev_origin)
+
+print(f"CORS allowed origins: {ALLOWED_ORIGINS}", flush=True)
 
 # Policy IDs that must never be overwritten by auto-registration.
 _DEFAULT_POLICY_IDS = {"CAP-001", "PRC-001", "POS-001"}
@@ -93,7 +99,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex="https://.*\\.vercel\\.app",
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
@@ -601,6 +607,7 @@ async def api_log_stream():
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # disable Nginx/Caddy/Traefik buffering
         },
     )

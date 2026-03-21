@@ -20,13 +20,28 @@ services:
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
+
+      # ── Main HTTP router (handles normal REST + SSE) ─────────────────
       - "traefik.http.routers.lean-backend.rule=Host(`api.devrashie.space`)"
       - "traefik.http.routers.lean-backend.entrypoints=https"
       - "traefik.http.routers.lean-backend.tls=true"
       - "traefik.http.routers.lean-backend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.lean-backend.service=lean-backend"
+      - "traefik.http.routers.lean-backend.middlewares=lean-cors@docker"
+
+      # ── Service definition ───────────────────────────────────────────
       - "traefik.http.services.lean-backend.loadbalancer.server.port=8000"
       - "traefik.http.services.lean-backend.loadbalancer.responseforwarding.flushinterval=1ms"
+
+      # ── CORS middleware (handles preflight + adds headers to ALL responses including errors) ──
+      - "traefik.http.middlewares.lean-cors.headers.accesscontrolallowmethods=GET,POST,OPTIONS"
+      - "traefik.http.middlewares.lean-cors.headers.accesscontrolallowheaders=Content-Type,Authorization"
+      - "traefik.http.middlewares.lean-cors.headers.accesscontrolalloworiginlist=https://axiom.devrashie.space"
+      - "traefik.http.middlewares.lean-cors.headers.accesscontrolmaxage=3600"
+      - "traefik.http.middlewares.lean-cors.headers.addvaryheader=true"
+
+      # ── Docker network for Traefik to reach this container ───────────
+      - "traefik.docker.network=coolify"
 
   lean-worker:
     build: ./lean-worker
@@ -39,7 +54,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 30s
     restart: unless-stopped
 
 volumes:
