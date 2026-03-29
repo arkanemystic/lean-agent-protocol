@@ -2,7 +2,7 @@
 
 **A proof-of-concept implementation of the formal verification architecture described in:**
 
-> Rashie, D. & Rashi, V. (2026). *Type-Checked Compliance: Deterministic Guardrails for Agentic Financial Systems Using Lean 4 Theorem Proving.* Preprint: [link]((https://drive.google.com/file/d/1QpcXIZrWuyNA1PjlrcSC-gy3wWccYEMx/view?usp=sharing))
+> Rashie, D. & Rashi, V. (2026). *Type-Checked Compliance: Deterministic Guardrails for Agentic Financial Systems Using Lean 4 Theorem Proving.* Preprint: [link](https://drive.google.com/file/d/1QpcXIZrWuyNA1PjlrcSC-gy3wWccYEMx/view?usp=sharing)
 
 This repository is a working demonstration of the paper's core thesis: that agentic AI systems operating in regulated domains can be governed by **mathematically verified compliance guarantees** rather than probabilistic classifiers. Every action a trading agent proposes is intercepted and submitted to the Lean 4 theorem prover as a formal conjecture. Execution is permitted if and only if the kernel produces a machine-verifiable proof that the action satisfies pre-compiled policy axioms.
 
