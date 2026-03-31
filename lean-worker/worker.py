@@ -26,6 +26,27 @@ ELAN_BIN = "/root/.elan/bin"
 # Augment PATH so subprocess can find lake/lean
 _env = {**os.environ, "PATH": f"{ELAN_BIN}:{os.environ.get('PATH', '')}"}
 
+LAKE_BUILD_DIR = POLICY_ENV_DIR / ".lake" / "build" / "lib"
+
+
+def _build_lean_env() -> dict:
+    if LAKE_BUILD_DIR.exists():
+        existing = _env.get("LEAN_PATH", "")
+        lean_path = f"{LAKE_BUILD_DIR}:{existing}" if existing else str(LAKE_BUILD_DIR)
+        return {**_env, "LEAN_PATH": lean_path}
+    return _env
+
+
+_lean_env_cache: dict = {}
+
+
+def _refresh_lean_env() -> None:
+    global _lean_env_cache
+    _lean_env_cache = _build_lean_env()
+
+
+_refresh_lean_env()  # populate at import time
+
 PROFILER_OPTIONS = "set_option profiler true\nset_option profiler.threshold 0\n"
 
 
@@ -110,7 +131,7 @@ def _parse_elab_us(trace: str) -> int | None:
 
 def run_lean(conjecture: str) -> tuple[str, str, int, int | None]:
     """
-    Write conjecture to a temp file, elaborate it with `lake env lean`.
+    Write conjecture to a temp file, elaborate it with direct `lean`.
     Returns (result, trace, latency_us, elab_us) where:
       result   ∈ {"proved","refuted","error"}
       elab_us  is the pure kernel elaboration time parsed from profiler output,
@@ -118,19 +139,19 @@ def run_lean(conjecture: str) -> tuple[str, str, int, int | None]:
     """
     instrumented = _inject_profiler(conjecture)
     start_ns = time.monotonic_ns()
-    tmp = tempfile.NamedTemporaryFile(suffix=".lean", dir="/tmp", mode="w", delete=False)
-    try:
-        tmp.write(instrumented)
-        tmp.flush()
-        tmp.close()
 
+    with tempfile.NamedTemporaryFile(suffix=".lean", dir="/tmp", mode="w", delete=False) as tmp:
+        tmp.write(instrumented)
+        tmp_path = tmp.name
+
+    try:
         proc = subprocess.run(
-            ["lake", "env", "lean", tmp.name],
+            ["lean", tmp_path],
             capture_output=True,
             text=True,
             timeout=30,
             cwd=str(POLICY_ENV_DIR),
-            env=_env,
+            env=_lean_env_cache,
         )
         latency_us = (time.monotonic_ns() - start_ns) // 1000
         trace = (proc.stdout + proc.stderr).strip()
@@ -156,7 +177,7 @@ def run_lean(conjecture: str) -> tuple[str, str, int, int | None]:
         return "error", trace, latency_us, elab_us
 
     finally:
-        os.unlink(tmp.name)
+        os.unlink(tmp_path)
 
 
 def lake_build() -> tuple[bool, str]:
@@ -279,6 +300,7 @@ class WorkerHandler(BaseHTTPRequestHandler):
         success, output = lake_build()
 
         if success:
+            _refresh_lean_env()  # pick up newly compiled .olean files
             self.send_json(200, {
                 "success": True,
                 "error": None,
@@ -297,12 +319,23 @@ class WorkerHandler(BaseHTTPRequestHandler):
 
 # ---------------------------------------------------------------------------- main
 
-def _warmup():
-    try:
-        run_lean("import PolicyEnv.Basic\n#check PolicyEnv.tradeWithinCapital")
-        print("lean-worker: warmup complete", flush=True)
-    except Exception as e:
-        print(f"lean-worker: warmup failed: {e}", flush=True)
+def _warmup() -> None:
+    _refresh_lean_env()
+    probes = [
+        "import PolicyEnv.Basic\nexample : PolicyEnv.tradeWithinCapital 5000 400000 = true := by decide",
+        "import PolicyEnv.Basic\nexample : PolicyEnv.tradeWithinCapital 50000 400000 = true := by decide",
+    ]
+    for i, probe in enumerate(probes, 1):
+        try:
+            result, _, latency_us, elab_us = run_lean(probe)
+            elab_ms = f"{elab_us/1000:.2f}ms kernel" if elab_us is not None else "no profiler"
+            print(
+                f"lean-worker: warmup probe {i}/2 → {result} "
+                f"({latency_us/1000:.1f}ms wall, {elab_ms})",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"lean-worker: warmup probe {i}/2 failed: {e}", flush=True)
 
 
 if __name__ == "__main__":
