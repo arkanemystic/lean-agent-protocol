@@ -26,7 +26,8 @@ ELAN_BIN = "/root/.elan/bin"
 # Augment PATH so subprocess can find lake/lean
 _env = {**os.environ, "PATH": f"{ELAN_BIN}:{os.environ.get('PATH', '')}"}
 
-LAKE_BUILD_DIR = POLICY_ENV_DIR / ".lake" / "build" / "lib"
+LAKE_BUILD_DIR = POLICY_ENV_DIR / ".lake" / "build" / "lib" / "lean"
+
 
 
 def _build_lean_env() -> dict:
