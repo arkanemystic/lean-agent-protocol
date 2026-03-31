@@ -107,27 +107,21 @@ def _inject_profiler(conjecture: str) -> str:
 
 def _parse_elab_us(trace: str) -> int | None:
     """
-    Extract the pure Lean elaboration time from profiler output.
-
-    Lean emits lines like:
-        [Elab.command] 1.23ms
-        [Elab.command] 456µs
-        [Elab.command] 0.001s
-
-    We take the LAST match — it corresponds to the top-level example/theorem;
-    earlier matches are nested elaboration steps.
-    Returns None when no profiler line is present.
+    Parse elaboration time from Lean profiler output.
+    Looks for 'elaboration took X.XXms' in the cumulative section.
     """
-    matches = re.findall(r'\[Elab\.command\]\s+([\d.]+)(ms|µs|s)\b', trace)
+    # Match "elaboration took 1.17ms" style lines
+    matches = re.findall(r'elaboration\s+(\d+(?:\.\d+)?)(ms|µs|s)\b', trace)
     if not matches:
         return None
+    # Take the last match — cumulative total
     val_str, unit = matches[-1]
     val = float(val_str)
     if unit == 'ms':
         return int(val * 1000)
     if unit == 'µs':
         return int(val)
-    return int(val * 1_000_000)  # unit == 's'
+    return int(val * 1_000_000)
 
 
 def run_lean(conjecture: str) -> tuple[str, str, int, int | None]:
