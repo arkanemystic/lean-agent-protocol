@@ -241,3 +241,7 @@ lean-agent-protocol/
   note    = {Preprint available at https://devrashie.space}
 }
 ```
+
+## Support This Research
+
+Axiom Protocol is self-funded independent work. If you found it useful — whether for a paper citation, a production integration, or just a rabbit hole — you can support continued development at [buymeacoffee.com/devrashie](https://buymeacoffee.com/devrashie).
